@@ -1,0 +1,20 @@
+<launch>
+        
+
+        <!-- Launch data Logger -->
+        <node pkg="suction_cup"           type="robotStatePublisher.py"                 name="robotStatePublisher"            output="screen" />
+
+
+        <!-- This will be replaed by the real Node execution -->
+        <arg name="ATI_ip" default="192.168.1.42" />        
+        <node pkg="netft_utils"           type="netft_node"                 name="netft_node"            output="screen" args="$(arg ATI_ip)" />
+        <!-- <node pkg="netft_utils"           type="netft_utils_sim"                 name="netft_utils_sim"            output="screen" /> -->
+
+        <!-- Launch data Logger -->
+        <node pkg="suction_cup"           type="data_logger.py"                 name="datalogger"            output="screen" />
+        
+        <!-- This launch a graphing tool which shows the 10 last seconds of the values coming from the Force/Torque sensor.  -->
+        <node pkg="rqt_multiplot" type="rqt_multiplot" name="rqt_multiplot_node" output="screen" args="--multiplot-run-all --multiplot-config $(find suction_cup)/launch/rqt_multiplot_ATI_Psensor.xml" />
+</launch>
+
+
