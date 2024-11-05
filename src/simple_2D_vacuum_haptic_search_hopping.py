@@ -268,7 +268,7 @@ def main(args):
     targetPWM_Pub.publish(DUTYCYCLE_0)
 
     # save data and clear the temporary folder
-    file_help.saveDataParams(args, appendTxt='jp_2D_HapticSearch_hopping_' + str(args.primitives)+'_controller_'+ str(args.controller) +'_material_' + str(args.material))
+    file_help.saveDataParams(args, appendTxt='Simple_2D_HapticSearch_continuous_' + str(args.reverse)+'_ch_'+ str(args.ch))
     file_help.clearTmpFolder()
     
     # go to disengage pose
@@ -287,10 +287,7 @@ def main(args):
 if __name__ == '__main__':  
   import argparse
   parser = argparse.ArgumentParser()
-  parser.add_argument('--primitives', type=str, help='types of primitives (nozzle, dumbbell, etc.)', default= "nozzle")
   parser.add_argument('--ch', type=int, help='number of channel', default= 4)
-  parser.add_argument('--controller', type=str, help='2D haptic contollers', default= "normal")
-  parser.add_argument('--material', type=int, help='Moldmax: 0, Elastic50: 1, agilus30: 2', default= 0)
   parser.add_argument('--tilt', type=int, help='tilted angle of the suction cup', default= 0)
   parser.add_argument('--yaw', type=int, help='yaw angle of the suction cup', default= 0)
   parser.add_argument('--reverse', type=bool, help='when we use reverse airflow', default= False)

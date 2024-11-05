@@ -1,7 +1,7 @@
-# EDG Robot Control ROS Package for EECS 106a class project (push/pull Smart Suction Cup) (Node/Python)
+# UR-10 Robot Control ROS Package for EECS 106a class project (push/pull Smart Suction Cup)
 
 ## Objective
-The objective of this package is to regroup in one place every modules useful for the control of EDG's UR-10 robotic arm with RTDE controller. This package also expose a launch file that is useful to quickstart all programs related to the control of the arm. THe main functions of this package is to move the UR robot to desired pose and recording data (robot pose, ATI F/T, ect.).
+The objective of this package is to contain every modules for the control of UR-10 robotic arm for push/pull Smart Suction Cup project. This package also expose a launch file that is useful to quickstart all programs related to the control of the arm. THe main functions of this package is to move the UR robot to desired pose and recording data (robot pose, ATI F/T, ect.).
 
 ## How to use the launch file?
 The included launch file takes care of loading the appropriate robot description, the parameters and the configuration of the UR-10 arm through the usage of the [universal_robot](https://github.com/ros-industrial/universal_robot) ROS package. Furthermore, this launch file spawn an instance of [MoveIt](https://docs.ros.org/kinetic/api/moveit_tutorials/html/index.html), again using the files coming with the [universal_robot](https://github.com/ros-industrial/universal_robot) package. Finally, this launch file also spawn an instance of the [rviz](http://wiki.ros.org/rviz/UserGuide) program which let's the user see a virtual robot with its environment as well as allowing to interact with the robot.
@@ -15,10 +15,11 @@ The first launch file takes a single argument which is the IP address of the rob
 roslaunch pushpull_suctioncup_106a ur_control.launch
 ```
 
-The Second launch file is mainly for data-logging. It launches data logger and visual rqt for real-time force torque readings.
+The Second launch file is mainly for data-logging. It launches data logger and visual rqt for real-time force torque and pressure readings.
 ```bash
 roslaunch pushpull_suctioncup_106a ur_experiment.launch
 ```
+
 
 ## ✨ How does it work?
 The principal script uses several different [Python modules](https://docs.python.org/2/tutorial/modules.html) and functions in heloperFunction in order to work. Each of these modules have a specific purpose.
@@ -46,9 +47,11 @@ These modules' primary purpose are to make the main code simple by integrating a
 #### The rtde_helper module
 This module has all things about robot control. It uses Real-Time Data Exchange (RTDE) protocol designed for Universal Robots (see details: https://www.universal-robots.com/products/ur-developer-suite/communication-protocol/rtde/). It includes basic motion of the UR robot using moveL and servoL as well as getting a TCP pose from the robot, getActualTCPPose. If needed, you can add other control methods (see details: https://sdurobotics.gitlab.io/ur_rtde/).
 
+#### The hapticSearch2D module
+This module has adaptive motion of the suciton cup with haptic search method in 2-dimensional space.
+
 #### The FT_callback_helper module
 This module is for subscribing data (/netft_data) from the ATI F/T sensor and performing 7-points moving average. Also, it helps us remove offset of data. In that case, need to use average_NoOffset variables.
-
 
 #### The trasnformation_matrix module
 This module includes functions for transformation matrixes and other form of them, including PoseStamped.
@@ -64,7 +67,32 @@ def __init__(self, savingFolderName = 'eecs106a_data'):
 ```
 
 ## 🚀 Usage (Example codes)
-Before writing your own code, please run and understand how the following examples work. Note: Before running the examples below, ensure that two required launch files are executed first.
+Before writing your own code, please run and understand how the following examples work. Note: Before running the examples below, ensure that two required launch files are executed first, then execute nodes for pressure reading and PWM control. Use separate terminals for each line.
+
+```bash
+roslaunch pushpull_suctioncup_106a ur_control.launch
+```
+```bash
+roslaunch pushpull_suctioncup_106a ur_experiment.launch
+```
+```bash
+rosrun pushpull_suctioncup_106a ESP32_Pressure.py
+```
+```bash
+rosrun pushpull_suctioncup_106a ESP32_PWM.py
+```
+
+In order to check whether ESP32 boards and pressure sensors are properly connected, use the following lines to start to publish pressure readings so that values are plotted in MultiplotPlugin in real-time.
+
+```bash
+rostopic pub -1 /cmdPacket pushpull_suctioncup_106a/cmdPacket "header: 
+  seq: 0
+  stamp:
+    secs: 0
+    nsecs: 0
+  frame_id: ''
+cmdInput: 2"
+```
 
 ### Simple robot control (`simple_robot_control.py`)
 The objective of this module is to send commands to the robot so that it moves as intended. This is achieved using the `goToPose` function. 
@@ -89,7 +117,7 @@ orientation = tf.transformations.quaternion_from_euler(np.pi,0,-np.pi/2,'sxyz') 
 ```
 
 - __Position__: A list `[x, y, z]` representing the coordinates with respect to the world frame. You can verify these values using the robot's pendant by setting the coordinate system to 'Base'.
-- __Orientation__: Euler angles are used. In this example, the 'sxyz' order specifies static frame rotations about the x, y, and z axes in that sequence. The rotation is applied as `R_x(θ_x)`, then `R_y(θ_y)`, followed by `R_z(θ_z)`.
+- __Orientation__: Euler angles are used. In this example, the `'sxyz'` order specifies static frame rotations about the x, y, and z axes in that sequence. The rotation is applied as `R_x(θ_x)`, then `R_y(θ_y)`, followed by `R_z(θ_z)`.
 
 The pose object is obtained with:
 ```python
@@ -178,7 +206,7 @@ The `.mat` file will be saved in a designated folder. By default, the files will
 
 
 
-### simple experiment (simple_experiment.py)
+### simple vacuum haptic search (`simple_2D_vacuum_haptic_search_continous.py` and `simple_2D_vacuum_haptic_search_continous.py`)
 
 
 ## Author

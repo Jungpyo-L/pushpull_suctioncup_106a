@@ -34,6 +34,7 @@ from std_msgs.msg import Int8
 import geometry_msgs.msg
 
 from helperFunction.FT_callback_helper import FT_CallbackHelp
+from helperFunction.SuctionP_callback_helper import P_CallbackHelp
 from helperFunction.fileSaveHelper import fileSaveHelp
 
 
@@ -43,6 +44,10 @@ def main(args):
   SYNC_START = 1
   SYNC_STOP = 2
 
+  DUTYCYCLE_100 = 100
+  DUTYCYCLE_30 = 30
+  DUTYCYCLE_0 = 0
+
   np.set_printoptions(precision=4)
 
   # controller node
@@ -51,8 +56,15 @@ def main(args):
   # Setup helper functions
   FT_help = FT_CallbackHelp() # it deals with subscription.
   rospy.sleep(0.5)
+  P_help = P_CallbackHelp() # it deals with subscription.
+  rospy.sleep(0.5)
   file_help = fileSaveHelp()
   rospy.sleep(0.5)
+
+  # Set the PWM Publisher  
+  targetPWM_Pub = rospy.Publisher('pwm', Int8, queue_size=1)
+  rospy.sleep(0.5)
+  targetPWM_Pub.publish(DUTYCYCLE_0)
 
   # Set the synchronization Publisher
   syncPub = rospy.Publisher('sync', Int8, queue_size=1)
@@ -68,6 +80,8 @@ def main(args):
 
   # try block so that we can have a keyboard exception
   try:
+    input("pressure <Enter> to start to vacuum")
+    targetPWM_Pub.publish(DUTYCYCLE_100)
 
     input("Press <Enter> to go to set bias")
     # set biases now
@@ -76,8 +90,10 @@ def main(args):
       rospy.sleep(0.1)
     except:
       print("set now as offset failed, but it's okay")
+    P_help.startSampling()      
+    rospy.sleep(0.5)
+    P_help.setNowAsOffset()
 
-   
     input("Press <Enter> to start to record data")
     dataLoggerEnable(True)
     rospy.sleep(0.2)
@@ -89,11 +105,22 @@ def main(args):
       syncPub.publish(SYNC_START)
       rospy.sleep(0.1)
 
+    # PWM value changes
+    targetPWM_Pub.publish(DUTYCYCLE_0)
+    rospy.sleep(1)
+    targetPWM_Pub.publish(DUTYCYCLE_30)
+    rospy.sleep(1)
+    targetPWM_Pub.publish(DUTYCYCLE_100)
+    rospy.sleep(1)
+
 
     args.currentTime = datetime.now().strftime("%H%M%S")
 
     # stop data logging
     dataLoggerEnable(False)
+    rospy.sleep(0.2)
+    P_help.stopSampling()
+    targetPWM_Pub.publish(DUTYCYCLE_0)
     rospy.sleep(0.2)
 
     # save data and clear the temporary folder

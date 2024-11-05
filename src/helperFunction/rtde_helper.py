@@ -113,7 +113,7 @@ class rtdeHelp(object):
         targetPose = self.getTCPPose(goalPose)
         self.rtde_c.moveL(targetPose, self.speed, self.acc, asynchronous)
 
-    def goToPoseAdaptive(self, goalPose, speed = 0.0, acc = 0.0,  time = 0.05, lookahead_time = 0.2, gain = 100.0):         # normal force measurement
+    def goToPoseAdaptive(self, goalPose, speed = 0.0, acc = 0.0,  time = 0.05, lookahead_time = 0.2, gain = 100.0): # normal force measurement
         t_start = self.rtde_c.initPeriod()
         targetPose = self.getTCPPose(goalPose)
         self.rtde_c.servoL(targetPose, speed, acc, time, lookahead_time, gain)

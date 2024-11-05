@@ -43,7 +43,7 @@ def main():
   # If you set it here, endEffectorPose will be different from the actual pose.
   # rtde_help.setTCPoffset([0, 0, 0.464, 0, 0, 0])
   # rospy.sleep(0.2)
-
+ 
   # Set the pose A
   positionA = [0.520, -0.200, 0.40]
   orientationA = tf.transformations.quaternion_from_euler(np.pi,0,-np.pi/2,'sxyz') #static (s) rotating (r)

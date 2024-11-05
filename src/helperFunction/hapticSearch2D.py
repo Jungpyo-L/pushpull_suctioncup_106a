@@ -185,7 +185,7 @@ class hapticSearch2DHelp(object):
         Rw = scipy.linalg.expm(d_yaw * omega_hat)   
         return create_transform_matrix(Rw, [0,0,0])
         
-    def get_Tmats_from_controller(self, P_array, yaw_angle, controller_str):
+    def get_Tmats_from_controller(self, P_array, yaw_angle, controller_str = "normal"):
         # ["normal","yaw","momentum","momentum_yaw"]
         if controller_str == "normal":
             T_align = np.eye(4)

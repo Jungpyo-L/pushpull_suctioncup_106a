@@ -49,16 +49,8 @@ from helperFunction.FT_callback_helper import FT_CallbackHelp
 from helperFunction.fileSaveHelper import fileSaveHelp
 from helperFunction.rtde_helper import rtdeHelp
 from helperFunction.hapticSearch2D import hapticSearch2DHelp
+from helperFunction.SuctionP_callback_helper import P_CallbackHelp
 
-
-def pressure_order_change(P_array, ch):
-  if ch == 3:
-    P_array_new = [P_array[1], P_array[2], P_array[0]]
-  elif ch == 4:
-    P_array_new = [P_array[1], P_array[2], P_array[3], P_array[0]]
-  elif ch == 6:
-    P_array_new = [P_array[1], P_array[2], P_array[3], P_array[4], P_array[5], P_array[0]]
-  return P_array_new
 
 def convert_yawAngle(yaw_radian):
   yaw_angle = yaw_radian*180/pi
@@ -67,8 +59,6 @@ def convert_yawAngle(yaw_radian):
 
 
 def main(args):
-
-  from helperFunction.SuctionP_callback_helper import P_CallbackHelp
 
   deg2rad = np.pi / 180.0
   DUTYCYCLE_100 = 100
@@ -169,9 +159,7 @@ def main(args):
       iteration_start_time = time.time()
       
       # P arrays to calculate Transformation matrices and change the order of pressure
-      P_array_old = P_help.four_pressure
-      P_array = pressure_order_change(P_array_old, args.ch)
-      
+      P_array = P_help.four_pressure      
       
       # get the current yaw angle of the suction cup
       measuredCurrPose = rtde_help.getCurrentPose()
@@ -195,8 +183,8 @@ def main(args):
 
       #=================== check attempt break conditions =================== 
       # LOOP BREAK CONDITION 1
-      P_array_old = P_help.four_pressure
-      P_array = pressure_order_change(P_array_old, args.ch)
+      P_array = P_help.four_pressure
+
       reached_vacuum = all(np.array(P_array)<P_vac)
       if reached_vacuum:
         # vacuum seal formed, success!
