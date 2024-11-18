@@ -25,21 +25,21 @@ roslaunch pushpull_suctioncup_106a ur_experiment.launch
 The principal script uses several different [Python modules](https://docs.python.org/2/tutorial/modules.html) and functions in heloperFunction in order to work. Each of these modules have a specific purpose.
 
 ### The robotStatePublisher module
-This module keep publishing TCP pose as a topic (/endEffectorPose) with 30 Hz. If you want to change the publish rate, you need to edit the followng line:
+This module keep publishing TCP pose as a topic (`/endEffectorPose`) with 30 Hz. If you want to change the publish rate, you need to edit the followng line:
 ```python
 rate = rospy.Rate(30)
 ```
 TCP pose published here is from TCP offset set in the UR pendent (not in the code).
 
-This module is excuted from the second launch file ('ur_experiment.launch').
+This module is excuted from the second launch file (`ur_experiment.launch`).
 
 
 ### The data_logger module
 The objective of this module to grab topics and save them as .csv files. This module uses 'service' so that user can request and stop data logging process.
 
-The topics in TopicList.txt (inside /config) are only recorded from this data logger. By default, /endEffectorPose and /netft_data are recorded. If you want to log your own defined topics, please add lines in TopicList.txt (see the example code 'simple_data_log.py').
+The topics in `TopicList.txt` (inside /config) are only recorded from this data logger. By default, `/endEffectorPose` and `/netft_data` are recorded. If you want to log your own defined topics, please add lines in `TopicList.txt` (see the example code `simple_data_log.py`).
 
-This module is excuted from the second launch file ('ur_experiment.launch').
+This module is excuted from the second launch file (`ur_experiment.launch`).
 
 ### Helper Functions
 These modules' primary purpose are to make the main code simple by integrating all helper functions related to robot control and data logging
