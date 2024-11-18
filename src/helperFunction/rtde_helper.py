@@ -25,17 +25,13 @@ import numpy as np
 
 
 class rtdeHelp(object):
-    def __init__(self, rtde_frequency = 125, speed = 0.3, acc = 0.2):
+    def __init__(self, rtde_frequency = 125):
         self.tfListener = tf.TransformListener()
         self.rtde_frequency = rtde_frequency
 
         self.rtde_c = rtde_control.RTDEControlInterface("10.0.0.1", rtde_frequency)
         self.rtde_r = rtde_receive.RTDEReceiveInterface("10.0.0.1", rtde_frequency)
 
-        self.checkDistThres = 1e-3
-        self.checkQuatThres = 10e-3
-        self.speed = speed
-        self.acc = acc
 
     def _append_ns(self, in_ns, suffix):
         """
@@ -111,49 +107,21 @@ class rtdeHelp(object):
 
     def goToPose(self, goalPose, speed = 0.1, acc = 0.1, asynchronous=False):
         targetPose = self.getTCPPose(goalPose)
-        self.rtde_c.moveL(targetPose, self.speed, self.acc, asynchronous)
+        self.rtde_c.moveL(targetPose, speed, acc, asynchronous)
 
     def goToPoseAdaptive(self, goalPose, speed = 0.0, acc = 0.0,  time = 0.05, lookahead_time = 0.2, gain = 100.0): # normal force measurement
         t_start = self.rtde_c.initPeriod()
         targetPose = self.getTCPPose(goalPose)
         self.rtde_c.servoL(targetPose, speed, acc, time, lookahead_time, gain)
         self.rtde_c.waitPeriod(t_start)
-
-    def checkGoalPoseReached(self, goalPose, checkDistThres=np.nan, checkQuatThres = np.nan):
-        if np.isnan(checkDistThres):
-            checkDistThres=self.checkDistThres
-        if np.isnan(checkQuatThres):
-            checkQuatThres = self.checkQuatThres
-        (trans1,rot) = self.tfListener.lookupTransform('/base_link', '/tool0', rospy.Time(0))          
-        goalQuat = np.array([goalPose.pose.orientation.x,goalPose.pose.orientation.y, goalPose.pose.orientation.z, goalPose.pose.orientation.w])
-        rot_array = np.array(rot)
-        quatDiff = np.min([np.max(np.abs(goalQuat - rot_array)), np.max(np.abs(goalQuat + rot_array))])
-        distDiff = np.linalg.norm(np.array([goalPose.pose.position.x,goalPose.pose.position.y, goalPose.pose.position.z])- np.array(trans1)) 
-        # print(quatDiff, distDiff)
-        print("quatdiff: %.4f" % quatDiff)
-        print("distDiff: %.4f" % distDiff)
-        return distDiff < checkDistThres and quatDiff < checkQuatThres
-
         
     def readCurrPositionQuat(self):
         (trans1,rot) = self.tfListener.lookupTransform('/base_link', '/tool0', rospy.Time(0))         
         return (trans1, rot) #trans1= position x,y,z, // quaternion: x,y,z,w
-
-    def stopAtCurrPose(self,asynchronous = True):
-        currPosition, orientation = self.readCurrPositionQuat()
-
-        # always false
-        # wait = False
-        self.goToPositionOrientation(currPosition, orientation, asynchronous=asynchronous)
     
     def stopAtCurrPoseAdaptive(self):
         self.rtde_c.servoStop()
         # self.rtde_c.stopScript()
-
-    # Get current pose from TF
-    def getCurrentPoseTF(self):
-        (Position, Orientation) = self.readCurrPositionQuat()
-        return getPoseObj(Position, Orientation)
 
     def getCurrentPose(self):
         TCPPose = self.rtde_r.getActualTCPPose()

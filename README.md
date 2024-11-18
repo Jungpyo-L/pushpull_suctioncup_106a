@@ -104,7 +104,7 @@ rosrun pushpull_suctioncup_106a simple_robot_control.py
 The speed and acceleration of the UR robot can be specified when creating an instance of the `rtdeHelp` class:
 
 ```python
-rtde_help = rtdeHelp(125, speed=0.1 , acc= 0.1)
+rtde_help = rtdeHelp(125)
 ```
 
 Note: Replace `125` (control rate) with the appropriate value for your setup.
@@ -133,7 +133,7 @@ rtde_help.goToPose(pose)
 This script demonstrates a simple robot movement from point A (`poseA`) to point B (`poseB`), then rotates with respect to the Tool Center Point (TCP) to reach pose C (`poseC`).
 
 
-### simple data log (`simple_data_log.py`)
+### Simple data log (`simple_data_log.py`)
 This script, `simple_data_log.py`, is designed for basic data logging using a UR10e robot and ATI sensors. It records ATI data and robot positions for a specified duration (10 seconds in this example).
 
 ```bash
@@ -206,7 +206,18 @@ The `.mat` file will be saved in a designated folder. By default, the files will
 
 
 
-### simple vacuum haptic search (`simple_2D_vacuum_haptic_search_continous.py` and `simple_2D_vacuum_haptic_search_continous.py`)
+### Simple vacuum haptic search (`simple_2D_vacuum_haptic_search.py`)
+This script has basic haptic search method. It approach the target point and trying to adjust it's pose with haptic search method until it succeeds to grasp an object or exceeds a search time (10 s here). 
+
+```bash
+rosrun pushpull_suctioncup_106a simple_2D_vacuum_haptic_search.py
+```
+
+By default, it is use pull (vacuum) haptic search, but if you want to test push (reverse flow) haptic search, you need to use an argument. Thus, we have to run it with the argument:
+
+```bash
+rosrun pushpull_suctioncup_106a simple_2D_vacuum_haptic_search.py --reverse True
+```
 
 
 ## Author
