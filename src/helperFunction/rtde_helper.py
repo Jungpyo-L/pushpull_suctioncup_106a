@@ -87,13 +87,13 @@ class rtdeHelp(object):
         Rx, Ry, Rz = self.getRotVector(pose)
         return [x, y, z, Rx, Ry, Rz]
     
-    def speedl(self, goalPose,speed=0.5, acc=0.5, time=0.5, aRot='a'):
+    def speedl(self, goalPose, speed=0.5, acc=0.5, time=0.5, aRot='a'):
 
         if len(goalPose) != 6:
             raise ValueError("Target pose must have 6 elements: [x, y, z, Rx, Ry, Rz]")
         try:
         # Perform linear motion using moveL function
-            self.rtde_c.speedL(goalPose, self.speed, self.acc, time, aRot)
+            self.rtde_c.speedL(goalPose, 0.1, time)
         except Exception as e:
             print(f"Error occurred during linear motion: {e}")
 
