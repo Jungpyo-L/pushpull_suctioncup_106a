@@ -5,8 +5,8 @@
 import rospy
 import numpy as np
 import os, sys
-from suction_cup.msg import SensorPacket
-from suction_cup.msg import cmdPacket
+from pushpull_suctioncup_106a.msg import SensorPacket
+from pushpull_suctioncup_106a.msg import cmdPacket
 
 # serial communication
 import serial

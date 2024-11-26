@@ -21,6 +21,7 @@ add_message_files(
  FILES
  SensorPacket.msg
  cmdPacket.msg
+ PushPull.msg
 )
 
 ## Generate services in the 'srv' folder
