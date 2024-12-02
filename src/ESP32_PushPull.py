@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-## ESP32 pwm generation for the suction cup experimentation
-
 import rospy
 import numpy as np
 import os, sys
@@ -26,6 +24,7 @@ def callback(data):
 
 def main():
     global pwm_val
+    global state_val
     rospy.init_node('ESP32_PWM')
 
     rospy.Subscriber('PushPull', PushPull, callback)
@@ -35,12 +34,17 @@ def main():
  
     while not rospy.is_shutdown():
         val = ser.readline().decode("utf-8")
-        # print('pwm: ', val[:len(val)-1])
+        # Print received value
+        # print('Received from serial: ', val.strip())
+
+        # Prepare the message to be sent
         state = str(state_val)
         pwm = str(pwm_val)
-        state = pwm.encode("utf-8")
-        pwm = pwm.encode("utf-8")
-        ser.write(state +_+ pwm + b'\n')
+        message = f"{state}_{pwm}\n".encode("utf-8")  # Encode as bytes
+
+        # Send the message to the serial port
+        ser.write(message)
+        # print(f"Sent to serial: {message.decode('utf-8').strip()}")
 
 if __name__ == '__main__':
     try:

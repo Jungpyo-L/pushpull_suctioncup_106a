@@ -83,9 +83,6 @@ def main(args):
 
   # try block so that we can have a keyboard exception
   try:
-    input("pressure <Enter> to start to vacuum")
-    targetPWM_Pub.publish(DUTYCYCLE_100)
-
     input("Press <Enter> to go to set bias")
     # set biases now
     try:
@@ -101,21 +98,21 @@ def main(args):
     dataLoggerEnable(True)
     rospy.sleep(0.2)
 
-    # while loop for 10 s
-    start_time = time.time()
-    while (time.time() - start_time) < 5:
-      # publish SYNC_START
-      syncPub.publish(SYNC_START)
-      rospy.sleep(0.1)
 
     # PWM value changes
-    targetPWM_Pub.publish(DUTYCYCLE_0)
-    rospy.sleep(1)
-    targetPWM_Pub.publish(DUTYCYCLE_30)
-    rospy.sleep(1)
-    targetPWM_Pub.publish(DUTYCYCLE_100)
-    rospy.sleep(1)
+    input("press <Enter> to start to state 1")
+    msg.state = 1
+    msg.pwm = 100
+    PushPull_pub.publish(msg)
 
+    input("press <Enter> to start to state 2")
+    msg.state = 2
+    msg.pwm = 100
+    PushPull_pub.publish(msg)
+
+    input("press<Enter> Finish Test")
+    msg.state =0
+    PushPull_pub.publish(msg)
 
     args.currentTime = datetime.now().strftime("%H%M%S")
 
@@ -123,7 +120,6 @@ def main(args):
     dataLoggerEnable(False)
     rospy.sleep(0.2)
     P_help.stopSampling()
-    targetPWM_Pub.publish(DUTYCYCLE_0)
     rospy.sleep(0.2)
 
     # save data and clear the temporary folder
