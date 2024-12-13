@@ -12,7 +12,7 @@ from calendar import month_abbr
 import os, sys
 import numpy as np
 import copy
-
+from pushpull_suctioncup_106a.msg import PushPull
 from netft_utils.srv import *
 from edg_ur10.srv import *
 
@@ -25,7 +25,7 @@ def main():
   np.set_printoptions(precision=4)
 
   # controller node
-  rospy.init_node('pushpull_experiment')
+  rospy.init_node('return_home')
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
@@ -36,17 +36,37 @@ def main():
   # If you set it here, endEffectorPose will be different from the actual pose.
   # rtde_help.setTCPoffset([0, 0, 0.464, 0, 0, 0])
   # rospy.sleep(0.2)
- 
+  # PushPull_pub = rospy.Publisher('PushPull', PushPull, queue_size=10)
+  # rospy.sleep(0.5)
+  # msg = PushPull()
+  # msg.pwm = 0
+  # msg.state = 0
+  # PushPull_pub.publish(msg)
   # Set the pose A
-  positionA = [0.502, -0.200, 0.280]
-  orientationA = tf.transformations.quaternion_from_euler(np.pi,0,-np.pi/2,'sxyz') #static (s) rotating (r)
-  poseA = rtde_help.getPoseObj(positionA, orientationA)
+  # positionA = [0.402, 0.2, 0.280]
+  
+  # orientationA = tf.transformations.quaternion_from_euler(np.pi,0,np.pi,'sxyz') #static (s) rotating (r)
+  # positionA = [0.5665, -0.0449, 0.28]
+  # poseA = rtde_help.getPoseObj(positionA, orientationA)
 
-  # try block so that we can have a keyboard exception
+  # # try block so that we can have a keyboard exception
+  # try:
+  #   input("Press <Enter> to go to pose A")
+  #   rtde_help.goToPose(poseA)
   try:
-    input("Press <Enter> to go to pose A")
+    print(rtde_help.getCurrentPose())
+    orientationA = [0.01082, -0.72230, -0.69148, 0.00368]
+    positionA = [0.58, 0.106, 0.29]
+    poseA = rtde_help.getPoseObj(positionA, orientationA)
+    input("Press <Enter> to go to detection pose")
     rtde_help.goToPose(poseA)
-    print("============ Return Home ============")
+    positionB = np.array([0.5687631066895945, -0.037558136715181975, 0.03])
+    constant_diff = np.array([-0.0314706, 0.01957908, 0.0])
+    correct_pososition = positionB - constant_diff
+    orientationB = tf.transformations.quaternion_from_euler(np.pi,0,np.pi,'sxyz') #static (s) rotating (r)
+    poseB = rtde_help.getPoseObj(correct_pososition, orientationB)
+    input("Press <Enter> to go to the center")
+    rtde_help.goToPose(poseB)
   except rospy.ROSInterruptException:
     return
   except KeyboardInterrupt:

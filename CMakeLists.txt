@@ -20,6 +20,7 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 add_message_files(
  FILES
  SensorPacket.msg
+ ChessState.msg
  cmdPacket.msg
  PushPull.msg
 )

@@ -1,0 +1,4 @@
+string chess_move
+string is_capture
+string piece_to_move
+string captured_piece

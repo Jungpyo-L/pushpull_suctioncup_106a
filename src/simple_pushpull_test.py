@@ -111,7 +111,7 @@ def main(args):
     PushPull_pub.publish(msg)
 
     input("press<Enter> Finish Test")
-    msg.state =0
+    msg.state = 0
     PushPull_pub.publish(msg)
 
     args.currentTime = datetime.now().strftime("%H%M%S")

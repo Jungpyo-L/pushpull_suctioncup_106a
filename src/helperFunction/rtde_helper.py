@@ -87,13 +87,14 @@ class rtdeHelp(object):
         Rx, Ry, Rz = self.getRotVector(pose)
         return [x, y, z, Rx, Ry, Rz]
     
-    def speedl(self, goalPose, speed=0.5, acc=0.5, time=0.5, aRot='a'):
+    def speedl(self, joint_speed, speed=0.5, acc=0.5, time=0.5, aRot='a'):
 
-        if len(goalPose) != 6:
+        if len(joint_speed) != 6:
             raise ValueError("Target pose must have 6 elements: [x, y, z, Rx, Ry, Rz]")
         try:
-        # Perform linear motion using moveL function
-            self.rtde_c.speedL(goalPose, 0.1, time)
+
+            # self.rtde_c.speedL(joint_speed, acc, time, False)
+            self.rtde_c.servoL(joint_speed, speed, acc, time, 0.2, 100)
         except Exception as e:
             print(f"Error occurred during linear motion: {e}")
 
@@ -109,7 +110,7 @@ class rtdeHelp(object):
         targetPose = self.getTCPPose(goalPose)
         self.rtde_c.moveL(targetPose, speed, acc, asynchronous)
 
-    def goToPoseAdaptive(self, goalPose, speed = 0.0, acc = 0.0,  time = 0.05, lookahead_time = 0.2, gain = 100.0): # normal force measurement
+    def goToPoseAdaptive(self, goalPose, speed = 3.14, acc = 0.0,  time = 0.03, lookahead_time = 0.2, gain = 100.0): # normal force measurement
         t_start = self.rtde_c.initPeriod()
         targetPose = self.getTCPPose(goalPose)
         self.rtde_c.servoL(targetPose, speed, acc, time, lookahead_time, gain)

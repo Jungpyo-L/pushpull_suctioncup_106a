@@ -38,6 +38,7 @@ from netft_utils.srv import *
 from suction_cup.srv import *
 from std_msgs.msg import String
 from std_msgs.msg import Int8
+from pushpull_suctioncup_106a.msg import PushPull
 import geometry_msgs.msg
 import tf
 import cv2
@@ -63,6 +64,10 @@ def main(args):
   SYNC_START = 1
   SYNC_STOP = 2
 
+  PULL_STATE = 2 
+  PUSH_STATE = 1
+  OFF_STATE = 0 
+
   FT_SimulatorOn = False
   np.set_printoptions(precision=4)
 
@@ -74,7 +79,7 @@ def main(args):
   rospy.sleep(0.5)
   P_help = P_CallbackHelp() # it deals with subscription.
   rospy.sleep(0.5)
-  rtde_help = rtde_help = rtdeHelp(125)
+  rtde_help = rtdeHelp(125)
   rospy.sleep(0.5)
   file_help = fileSaveHelp()
   search_help = hapticSearch2DHelp(d_lat = 5e-3, d_yaw=1, n_ch = args.ch, p_reverse = args.reverse) # d_lat is important for the haptic search (if it is too small, the controller will fail)
@@ -86,10 +91,11 @@ def main(args):
     # bring the service
     netftSimCall = rospy.ServiceProxy('start_sim', StartSim)
 
-  # Set the PWM Publisher  
-  targetPWM_Pub = rospy.Publisher('pwm', Int8, queue_size=1)
+  # Set the PushPull Publisher  
+  PushPull_pub = rospy.Publisher('PushPull', PushPull, queue_size=10)
   rospy.sleep(0.5)
-  targetPWM_Pub.publish(DUTYCYCLE_0)
+  msg = PushPull()
+  msg.state, msg.pwm = 0, 0
 
   # Set the synchronization Publisher
   syncPub = rospy.Publisher('sync', Int8, queue_size=1)
@@ -112,7 +118,7 @@ def main(args):
   
   # set initial parameters
   suctionSuccessFlag = False
-  P_vac = search_help.P_vac
+  # P_vac = search_help.P_vac
   timeLimit = 15
   if args.reverse:
     timeLimit = 10
@@ -126,31 +132,40 @@ def main(args):
     rtde_help.goToPose(disEngagePose)
     
     print("Start the haptic search")
-    targetPWM_Pub.publish(DUTYCYCLE_100)
+    msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
+    PushPull_pub.publish(msg)
     P_help.startSampling()      
     rospy.sleep(0.5)
     P_help.setNowAsOffset()
     dataLoggerEnable(True)
 
+    # P_vac = -7000
+
     print("move down to go to engagepose")
     engagePosition = copy.deepcopy(disengagePosition)
-    engagePosition[2] = disengagePosition[2] - 6.5e-2 # if the engage position is too loose, the controller will fail (probably because of the horizontal flow)
+    engagePosition = [0.567, -0.0623, 0.016] # if the engage position is too loose, the controller will fail (probably because of the horizontal flow)
     engagePose = rtde_help.getPoseObj(engagePosition, setOrientation)
     rtde_help.goToPose(engagePose)
 
     print("Start the haptic search")
     # set initial parameters
     suctionSuccessFlag = False
-    P_vac = search_help.P_vac
+    # P_vac = search_help.P_vac
     startTime = time.time()
+    sg = PushPull()
     
     # begin the haptic search
     while not suctionSuccessFlag:   # while no success in grasp, run controller until success or timeout
 
+      # msg.state = 2
+      # msg.pwm = 100
+      # PushPull_pub.publish(msg)
+
       iteration_start_time = time.time()
       
       # P arrays to calculate Transformation matrices and change the order of pressure
-      P_array = P_help.four_pressure      
+      P_array = P_help.four_pressure     
+      #print(P_array) 
       
       # get the current yaw angle of the suction cup
       measuredCurrPose = rtde_help.getCurrentPose()
@@ -158,14 +173,40 @@ def main(args):
 
       # calculate transformation matrices
       T_later, T_align = search_help.get_Tmats_from_controller(P_array)
-      # T_later = search_help.get_Tmat_TranslateInX()
-      T_move =  T_later
+      #T_later = search_help.get_Tmat_TranslateInZ()
+      T_move = T_later
 
       # move to new pose adaptively
       measuredCurrPose = rtde_help.getCurrentPose()
       currPose = search_help.get_PoseStamped_from_T_initPose(T_move, measuredCurrPose)
       rtde_help.goToPoseAdaptive(currPose)
+      # Create a pose 1 cm above the current target pose
+      poseAbove = currPose
+      poseAbove.pose.position.z += 0.1  # Add 1 cm to the z-coordinate
+      poseBelow = currPose
+      poseBelow.pose.position.z -= 0.1  # Add 1 cm to the z-coordinate
+
+      # Push
+
+      # Move to the pose 1 cm above
       
+      # while poseAbove.pose.position.z * 1000000 // 1 != rtde_help.getCurrentPose().pose.position.z * 1000000 // 1:
+      #     try:
+      #       print(poseAbove.pose.position.z * 1000000 // 1 , rtde_help.getCurrentPose().pose.position.z * 1000000 // 1 )
+      #       rtde_help.goToPoseAdaptive(poseAbove)
+      #     except KeyboardInterrupt:
+      #       break
+
+
+
+      # Move to the original target pose
+      # rtde_help.goToPose(currPose)
+      # Pull
+      # msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
+      # PushPull_pub.publish(msg)
+      measuredCurrPose = rtde_help.getCurrentPose()
+      currPose = search_help.get_PoseStamped_from_T_initPose(T_move, measuredCurrPose)
+
       # calculate current angle
       measuredCurrPose = rtde_help.getCurrentPose()
       T_curr = search_help.get_Tmat_from_Pose(measuredCurrPose)
@@ -176,6 +217,7 @@ def main(args):
       P_array = P_help.four_pressure
 
       reached_vacuum = all(np.array(P_array)<P_vac)
+      # N, S, W, E
       if reached_vacuum:
         # vacuum seal formed, success!
         suctionSuccessFlag = True
@@ -197,11 +239,20 @@ def main(args):
 
         # stop at the last pose
         rtde_help.stopAtCurrPoseAdaptive()
-        targetPWM_Pub.publish(DUTYCYCLE_0)
+        msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+        PushPull_pub.publish(msg)
         
         # keep X sec of data after alignment is complete
         rospy.sleep(0.1)
         break
+      print(np.any(np.array(P_array) < P_vac))
+      # elif np.any(np.array(P_array) < P_vac):
+      #   direction = np.where(np.array(P_array) < P_vac)[0]
+      #   print("direction: ", direction)
+      #   msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_100
+      #   PushPull_pub.publish(msg)
+      #   rtde_help.goToPoseAdaptive(poseAbove)
+      #   rospy.sleep(5)
 
     args.suction = suctionSuccessFlag
     # stop data logging
@@ -218,14 +269,18 @@ def main(args):
     # go to disengage pose
     print("Start to go to disengage pose")
     rtde_help.goToPose(disEngagePose)
-    targetPWM_Pub.publish(DUTYCYCLE_0)
+    msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+    PushPull_pub.publish(msg) 
+
 
     print("============ Python UR_Interface demo complete!")
   except rospy.ROSInterruptException:
-    targetPWM_Pub.publish(DUTYCYCLE_0)
+    msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+    PushPull_pub.publish(msg)
     return
   except KeyboardInterrupt:
-    targetPWM_Pub.publish(DUTYCYCLE_0)
+    msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+    PushPull_pub.publish(msg)
     return  
 
 

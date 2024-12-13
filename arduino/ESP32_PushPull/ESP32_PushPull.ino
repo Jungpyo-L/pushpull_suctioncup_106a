@@ -55,13 +55,13 @@ void loop() {
     digitalWrite(Push_pin, LOW);
     digitalWrite(Pull_pin, LOW);
     break;
-  case PULL_state:
+  case PUSH_state:
     ledcWrite(pwmChannel, pwm_8bit);
     digitalWrite(Push_pin, HIGH);
     digitalWrite(Pull_pin, LOW);
     break;
   
-  case PUSH_state:
+  case PULL_state:
     ledcWrite(pwmChannel, pwm_8bit);
     digitalWrite(Push_pin, LOW);
     digitalWrite(Pull_pin, HIGH);

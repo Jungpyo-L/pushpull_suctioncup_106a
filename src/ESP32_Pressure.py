@@ -35,10 +35,14 @@ def main():
     global CMD_in
 
     rospy.init_node('ESP32_Pressure')
-    
+    print("cuurent state: ", currState)
+    print("CMD_in: ", CMD_in)
     #Sensor reading is published to topic 'SensorPacket'
     pub = rospy.Publisher('SensorPacket', SensorPacket, queue_size=10)
     rospy.Subscriber("cmdPacket",cmdPacket, callback)
+
+    print("cuurent state: ", currState)
+    print("CMD_in: ", CMD_in)
     msg = SensorPacket()
     msg.data = [0.0, 0.0, 0.0, 0.0] 
 
@@ -48,13 +52,16 @@ def main():
  
     while not rospy.is_shutdown():
         try:
+            CMD_in = START_CMD
             if currState == IDLE and CMD_in == START_CMD:
+                print("true")
                 CMD_in = NO_CMD
                 ser.write(struct.pack('<B', ord("i")))
                 rospy.sleep(0.01)
                 ser.write(struct.pack('<B', ord("s")))
                 rospy.sleep(0.01)
                 while not CMD_in == IDLE_CMD and not rospy.is_shutdown():
+                    
                     ser_bytes = ser.readline().decode("utf-8")
                     # print("ser_bytes: ", ser_bytes)
                     split_data = ser_bytes.split(' ')
@@ -70,6 +77,7 @@ def main():
                     msg.data[3] = float(fourth_val)
                     print(msg)
                     msg.header.stamp = rospy.Time.now()
+                    print("test")
                     pub.publish(msg)
 
                 # ser.write("i" + "\r\n")

@@ -99,7 +99,7 @@ class P_CallbackHelp(object):
 
         # if buffer is filled, then set average flag to true and reset idx
         if self.P_idx == len(self.PressureBuffer):
-            # averagin flag is always true now, i.e. ring buffer
+            # averaging flag is always true now, i.e. ring buffer
             self.startPresAvg = True
             self.P_idx = 0
         
