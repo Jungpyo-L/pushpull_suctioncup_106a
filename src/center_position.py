@@ -25,7 +25,7 @@ def main():
   np.set_printoptions(precision=4)
 
   # controller node
-  rospy.init_node('return_home')
+  rospy.init_node('center_position')
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
@@ -54,25 +54,25 @@ def main():
   #   input("Press <Enter> to go to pose A")
   #   rtde_help.goToPose(poseA)
   try:
-    print(rtde_help.getCurrentPose())
-    #orientationA = [0.01082, -0.72230, -0.69148, 0.00368]
-    orientationA = tf.transformations.quaternion_from_euler(np.pi,0,np.pi,'sxyz') #static (s) rotating (r)
-    positionA = [0.58, 0.106, 0.29]
-    poseA = rtde_help.getPoseObj(positionA, orientationA)
-    input("Press <Enter> to go to detection pose")
-    rtde_help.goToPose(poseA)
+    #print(rtde_help.getCurrentPose())
+    # orientationA = [0.01082, -0.72230, -0.69148, 0.00368]
+    # positionA = [0.58, 0.106, 0.29]
+    # poseA = rtde_help.getPoseObj(positionA, orientationA)
+    # input("Press <Enter> to go to detection pose")
+    # rtde_help.goToPose(poseA)
 
-    # positionB = np.array([ 0.5187079579760939, -0.05773449991886208, 0.03])
-    # #need to be adjusted depedning on the camera setting
-    # constant_diff = np.array([-0.0507, -0.0, 0.0])
+    positionB = np.array([0.4763518817033466, 0.013583290787995318, 0.03])
 
-    # correct_pososition = positionB - constant_diff
-    # orientationB = tf.transformations.quaternion_from_euler(np.pi,0,np.pi,'sxyz') #static (s) rotating (r)
-    # poseB = rtde_help.getPoseObj(correct_pososition, orientationB)
-    # input("Press <Enter> to go to the center")
-    # rtde_help.goToPose(poseB)
+    #need to be adjusted depends on the camera setting
+    constant_diff = np.array([-0.0507, -0.0, 0.0])
 
-    # print("Final center position: ", correct_pososition)
+    correct_pososition = positionB - constant_diff
+    orientationB = tf.transformations.quaternion_from_euler(np.pi,0,np.pi,'sxyz') #static (s) rotating (r)
+    poseB = rtde_help.getPoseObj(correct_pososition, orientationB)
+    input("Press <Enter> to go to the center")
+    rtde_help.goToPose(poseB)
+
+    print("Final center position: ", correct_pososition)
 
 
   except rospy.ROSInterruptException:

@@ -43,6 +43,7 @@ from dataclasses import dataclass
 
 
 # Constants
+#We can update this manually by checking the center using the object_detection.py and center_position.py script
 HANGING_POSITION = [0.5517035985963046, -0.06948488804144246, 0.280]
 Z = 0.0151
 IN_TO_M = 0.0254

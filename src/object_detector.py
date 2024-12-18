@@ -22,6 +22,9 @@ PLOTS_DIR = os.path.join(os.getcwd(), 'plots')
 class ObjectDetector:
     def __init__(self):
         rospy.init_node('object_detector', anonymous=True)
+        self.go_to_detection_pose()
+        rospy.sleep(2)
+        print("press enter to start detection")
 
         self.bridge = CvBridge()
 
@@ -39,11 +42,29 @@ class ObjectDetector:
         self.camera_info_sub = rospy.Subscriber("/camera/color/camera_info", CameraInfo, self.camera_info_callback)
 
         self.tf_listener = tf.TransformListener()  # Create a TransformListener object
+    
 
         self.point_pub = rospy.Publisher("goal_point", Point, queue_size=10)
         self.image_pub = rospy.Publisher('detected_hoop', Image, queue_size=10)
 
+        detection_timer = rospy.Timer(rospy.Duration(3), self.stop_detection, oneshot=True)
+        self.detection_active = True
+        self.detection_complete = False
+
         rospy.spin()
+
+    
+
+    def go_to_detection_pose(self):
+        deg2rad = np.pi / 180.0
+        np.set_printoptions(precision=4)
+        rtde_help = rtdeHelp(125)
+        rospy.sleep(0.5)
+        orientationA = [0.01082, -0.72230, -0.69148, 0.00368]
+        positionA = [0.58, 0.106, 0.29]
+        poseA = rtde_help.getPoseObj(positionA, orientationA)
+        input("Press <Enter> to go to detection pose")
+        rtde_help.goToPose(poseA)
 
     def camera_info_callback(self, msg):
         # TODO: Extract the intrinsic parameters from the CameraInfo message (look this message type up online)
@@ -60,6 +81,10 @@ class ObjectDetector:
         return X, Y, Z
 
     def color_image_callback(self, msg):
+        if not self.detection_active:
+            print("Detection stopped.")
+            self.next_step()
+            return
         try:
             # Convert the ROS Image message to an OpenCV image (BGR8 format)
             self.cv_color_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
@@ -79,8 +104,17 @@ class ObjectDetector:
         except Exception as e:
             print("Error:", e)
 
-    def process_images(self):
+    def stop_detection(self, event):
+        # Stop detection after few seconds
+        print("Stopping object detection after 5 seconds.")
+        self.detection_active = False
+        rospy.signal_shutdown("Detection completed, shutting down node.")
 
+    def next_step(self):
+        print("Hello, I am the next step")
+
+        
+    def process_images(self):
         # Convert the color image to HSV color space
         hsv = cv2.cvtColor(self.cv_color_image, cv2.COLOR_BGR2HSV)
         # TODO: Define range for cup color in HSV
@@ -90,8 +124,8 @@ class ObjectDetector:
         
         #rospy.sleep(0.5)
         #print(rtde_help.getCurrentPose())
-        lower_hsv = np.array([96, 102, 52]) # TODO: Define lower HSV values for cup color
-        upper_hsv = np.array([116, 230, 126]) # TODO: Define upper HSV values for cup color
+        lower_hsv = np.array([0, 106, 86]) # TODO: Define lower HSV values for cup color
+        upper_hsv = np.array([58, 180, 176]) # TODO: Define upper HSV values for cup color
 
         # TODO: Threshold the image to get only cup colors
         # HINT: Lookup cv2.inRange()
@@ -149,19 +183,6 @@ class ObjectDetector:
                 return
 
 if __name__ == '__main__':
-    # deg2rad = np.pi / 180.0
-    # np.set_printoptions(precision=4)
-    # rtde_help = rtdeHelp(125)
-    # rospy.sleep(0.5)
-    # #orientationA = tf.transformations.quaternion_from_euler(np.pi,0,np.pi,'sxyz') #static (s) rotating (r)
-    # orientationA = [-0.0045187, -0.73751, -0.67528637, 0.0068338]
-    # #print(orientationA)
-    # positionA = [0.5619, 0.1668, 0.4203]
-    # poseA = rtde_help.getPoseObj(positionA, orientationA)
-
-
-    # input("Press <Enter> to go to detection pose")
-    # rtde_help.goToPose(poseA)
     ObjectDetector()
 
     
