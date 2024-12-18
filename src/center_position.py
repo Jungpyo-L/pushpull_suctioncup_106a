@@ -64,7 +64,7 @@ def main():
     positionB = np.array([0.4763518817033466, 0.013583290787995318, 0.03])
 
     #need to be adjusted depends on the camera setting
-    constant_diff = np.array([-0.0507, -0.0, 0.0])
+    constant_diff = np.array([-0.0507, -0.02, 0.0])
 
     correct_pososition = positionB - constant_diff
     orientationB = tf.transformations.quaternion_from_euler(np.pi,0,np.pi,'sxyz') #static (s) rotating (r)
