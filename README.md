@@ -79,7 +79,7 @@ roslaunch pushpull_suctioncup_106a ur_experiment.launch
 rosrun pushpull_suctioncup_106a ESP32_Pressure.py
 ```
 ```bash
-rosrun pushpull_suctioncup_106a ESP32_PWM.py
+rosrun pushpull_suctioncup_106a ESP32_PushPull.py
 ```
 
 In order to check whether ESP32 boards and pressure sensors are properly connected, use the following lines to start to publish pressure readings so that values are plotted in MultiplotPlugin in real-time.
