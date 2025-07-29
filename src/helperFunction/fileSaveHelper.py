@@ -8,7 +8,7 @@ from scipy.io import savemat
 import re
 
 class fileSaveHelp(object):
-    def __init__(self, savingFolderName = 'eecs106a_data'):
+    def __init__(self, savingFolderName = 'SuctionExperiment/Gia'):
         self.savingFolderName = savingFolderName
         self.ResultSavingDirectory = os.path.expanduser('~') + '/' + self.savingFolderName + '/' + datetime.now().strftime("%y%m%d")        
         if not os.path.exists(self.ResultSavingDirectory):
