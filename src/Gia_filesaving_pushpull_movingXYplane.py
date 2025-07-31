@@ -126,6 +126,7 @@ def main(args):
             pos[0] += offset[0]
             pos[1] += offset[1]
             pos[2] += offset[2]
+            # pos[3] += offset[3]
             move_positions.append(pos)
 
         for idx, target_pos in enumerate(move_positions):
