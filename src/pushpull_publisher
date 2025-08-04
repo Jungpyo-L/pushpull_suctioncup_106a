@@ -84,7 +84,7 @@ def main(args):
   # try block so that we can have a keyboard exception
   try:
     print('0 : Off')
-    print('1 : Push')
+    print('1 : Pull')
     print('2 : Pull')
     
 
