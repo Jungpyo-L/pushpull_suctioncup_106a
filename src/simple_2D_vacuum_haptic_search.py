@@ -108,6 +108,9 @@ def main(args):
   rospy.sleep(1)
   file_help.clearTmpFolder()        # clear the temporary folder
   datadir = file_help.ResultSavingDirectory
+
+  # Set TCP pose
+  rtde_help.setTCPoffset([0, 0, 0.150, 0, 0, 0])
   
 
   # Set the disengage pose
