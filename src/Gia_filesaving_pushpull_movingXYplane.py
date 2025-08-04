@@ -70,9 +70,9 @@ def main(args):
     rtde_help = rtdeHelp(125)
     rospy.sleep(0.5)
 
-    targetPWM_Pub = rospy.Publisher('pwm', Int8, queue_size=1)
+    # targetPWM_Pub = rospy.Publisher('pwm', Int8, queue_size=1)
     rospy.sleep(0.5)
-    targetPWM_Pub.publish(DUTYCYCLE_0)
+    # targetPWM_Pub.publish(DUTYCYCLE_0)
 
     syncPub = rospy.Publisher('sync', Int8, queue_size=1)
 
@@ -81,16 +81,18 @@ def main(args):
     dataLoggerEnable = rospy.ServiceProxy('data_logging', Enable)
     dataLoggerEnable(False)  # 데이터 로거 초기화
     rospy.sleep(1)
-    file_help.clearTmpFolder()  # 임시 폴더 정리
+    file_help.clearTmpFolder()  
     datadir = file_help.ResultSavingDirectory
 
     PushPull_pub = rospy.Publisher('PushPull', PushPull, queue_size=10)
     msg = PushPull()
 
+    P_vac = P_help.P_vac
+
     # ------------------ TEST MOTION + DATA LOGGING ------------------
     try:
         input("pressure <Enter> to start to vacuum")
-        targetPWM_Pub.publish(DUTYCYCLE_100)
+        # targetPWM_Pub.publish(DUTYCYCLE_100)
 
         input("Press <Enter> to go to set bias")
         try:
@@ -153,24 +155,23 @@ def main(args):
         PushPull_pub.publish(msg)
         rospy.loginfo("=== Movement complete, suction OFF ===")
 
-        # 예시: 실험 중 추가 PWM 명령
-        targetPWM_Pub.publish(DUTYCYCLE_0)
+        # targetPWM_Pub.publish(DUTYCYCLE_0)
         rospy.sleep(0.5)
-        targetPWM_Pub.publish(DUTYCYCLE_30)
+        # targetPWM_Pub.publish(DUTYCYCLE_30)
         rospy.sleep(0.5)
-        targetPWM_Pub.publish(DUTYCYCLE_100)
+        # targetPWM_Pub.publish(DUTYCYCLE_100)
         rospy.sleep(0.5)
 
         args.currentTime = datetime.now().strftime("%H%M%S")
-
+        P_array = P_help.four_pressure
         # <<<< 데이터 로깅 종료 및 파일 저장 >>>>
         dataLoggerEnable(False)
         rospy.sleep(0.2)
         P_help.stopSampling()
-        targetPWM_Pub.publish(DUTYCYCLE_0)
+        # targetPWM_Pub.publish(DUTYCYCLE_0)
         rospy.sleep(0.2)
         file_help.saveDataParams(args, appendTxt='Simple_data_log_movingXY_'+str(args.ch)+'_'+str(args.currentTime))
-        file_help.clearTmpFolder()
+        # file_help.clearTmpFolder()
         print("============ Python UR_Interface demo complete!")
 
     except rospy.ROSInterruptException:
