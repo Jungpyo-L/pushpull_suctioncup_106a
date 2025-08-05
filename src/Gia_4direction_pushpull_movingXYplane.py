@@ -175,6 +175,6 @@ if __name__ == '__main__':
     parser.add_argument('--ch', type=int, default=4, help='number of channel')
     parser.add_argument('--tilt', type=int, default=0, help='tilted angle of the suction cup')
     parser.add_argument('--yaw', type=int, default=0, help='yaw angle of the suction cup')
-    parser.add_argument('--reverse', type=bool, default=False, help='when we use reverse airflow')
+    parser.add_argument('--reverse', type=bool, default=True, help='when we use reverse airflow')
     args = parser.parse_args()
     main(args)
