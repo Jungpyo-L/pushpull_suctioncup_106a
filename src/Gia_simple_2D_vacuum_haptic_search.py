@@ -4,13 +4,7 @@ import rospy
 import tf
 import numpy as np
 import time
-import copy
 from math import pi
-from datetime import datetime
-
-from helperFunction.utils import rotation_from_quaternion, create_transform_matrix, quaternion_from_matrix, normalize, hat
-from netft_utils.srv import *
-from suction_cup.srv import *
 from std_msgs.msg import Int8
 from pushpull_suctioncup_106a.msg import PushPull
 
@@ -19,7 +13,7 @@ from helperFunction.fileSaveHelper import fileSaveHelp
 from helperFunction.rtde_helper import rtdeHelp
 from helperFunction.hapticSearch2D import hapticSearch2DHelp
 from helperFunction.SuctionP_callback_helper import P_CallbackHelp
-
+from suction_cup.srv import Enable
 
 def main(args):
     DUTYCYCLE_100 = 100
@@ -33,18 +27,17 @@ def main(args):
     rospy.init_node('suction_cup')
 
     # Helper 초기화
-    FT_help = FT_CallbackHelp()
-    rospy.sleep(0.5)
-    P_help = P_CallbackHelp()
-    rospy.sleep(0.5)
-    rtde_help = rtdeHelp(125)
-    rospy.sleep(0.5)
+    FT_help = FT_CallbackHelp(); rospy.sleep(0.5)
+    P_help = P_CallbackHelp(); rospy.sleep(0.5)
+    rtde_help = rtdeHelp(125); rospy.sleep(0.5)
     file_help = fileSaveHelp()
 
-    search_help = hapticSearch2DHelp(d_lat=5e-3, d_yaw=1, n_ch=args.ch, p_reverse=args.reverse)
 
-    PushPull_pub = rospy.Publisher('PushPull', PushPull, queue_size=10)
-    rospy.sleep(0.5)
+    search_help = hapticSearch2DHelp(
+        d_lat=5e-3, d_yaw=1, n_ch=args.ch, p_reverse=args.reverse
+    )
+
+    PushPull_pub = rospy.Publisher('PushPull', PushPull, queue_size=10); rospy.sleep(0.5)
     msg = PushPull()
 
     syncPub = rospy.Publisher('sync', Int8, queue_size=1)
@@ -52,8 +45,7 @@ def main(args):
 
     rospy.wait_for_service('data_logging')
     dataLoggerEnable = rospy.ServiceProxy('data_logging', Enable)
-    dataLoggerEnable(False)
-    rospy.sleep(1)
+    dataLoggerEnable(False); rospy.sleep(1)
     file_help.clearTmpFolder()
     datadir = file_help.ResultSavingDirectory
 
@@ -64,7 +56,7 @@ def main(args):
 
     engagePosition = [0.40, -0.100, 0.280]
     engagePose = rtde_help.getPoseObj(engagePosition, setOrientation)
-    # **********************************************
+    # ******************************************
 
     timeLimit = 15 if not args.reverse else 10
     args.timeLimit = timeLimit
@@ -76,8 +68,14 @@ def main(args):
         rtde_help.goToPose(disEngagePose)
 
         print("Start the haptic search")
-        msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_100
+        if args.reverse:
+            msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_100
+            print("[MODE] PUSH")
+        else:
+            msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
+            print("[MODE] PULL")
         PushPull_pub.publish(msg)
+
         P_help.startSampling()
         rospy.sleep(0.5)
         P_help.setNowAsOffset()
@@ -89,16 +87,22 @@ def main(args):
 
         while not suctionSuccessFlag:
             P_array = P_help.four_pressure
-            print("Current pressure readings: ", P_array) ###THIS IS THE PROBLEM 
-            measuredCurrPose = rtde_help.getCurrentPose()
-            T_later, T_align = search_help.get_Tmats_from_controller(P_array)
-            T_move = T_later
+            print("Current pressure readings:", P_array)
 
-            currPose = search_help.get_PoseStamped_from_T_initPose(T_move, measuredCurrPose)
+            measuredCurrPose = rtde_help.getCurrentPose()
+            T_later, _ = search_help.get_Tmats_from_controller(P_array)
+            currPose = search_help.get_PoseStamped_from_T_initPose(T_later, measuredCurrPose)
             rtde_help.goToPoseAdaptive(currPose)
 
-            P_vac = search_help.P_vac
-            reached_vacuum = all(np.array(P_array) < P_vac)
+            if not args.reverse:
+                # Pull: 음압 기준
+                P_vac = search_help.P_vac
+                reached_vacuum = all(np.array(P_array) < P_vac)
+            else:
+                # Push: 양압 기준
+                P_push_th = 10000  
+                reached_vacuum = all(np.array(P_array) > P_push_th)
+                print("Reached vacuum threshold:", reached_vacuum)
 
             if reached_vacuum:
                 suctionSuccessFlag = True
@@ -109,7 +113,7 @@ def main(args):
                 break
             elif time.time() - startTime > timeLimit:
                 args.elapsedTime = time.time() - startTime
-                print("Suction controller failed!")
+                print("Suction controller failed (timeout)!")
                 rtde_help.stopAtCurrPoseAdaptive()
                 msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
                 PushPull_pub.publish(msg)
@@ -125,7 +129,7 @@ def main(args):
         )
         file_help.clearTmpFolder()
 
-        print("Start to go to disengage pose")
+        print("Returning to disengage pose")
         rtde_help.goToPose(disEngagePose)
         msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
         PushPull_pub.publish(msg)
@@ -136,13 +140,25 @@ def main(args):
         msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
         PushPull_pub.publish(msg)
 
-
 if __name__ == '__main__':
     import argparse
+
+    def str2bool(v):
+        if isinstance(v, bool):
+            return v
+        if v.lower() in ('yes', 'true', 't', 'y', '1'):
+            return True
+        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+            return False
+        else:
+            raise argparse.ArgumentTypeError('Boolean value expected.')
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--ch', type=int, default=4)
     parser.add_argument('--tilt', type=int, default=0)
     parser.add_argument('--yaw', type=int, default=0)
-    parser.add_argument('--reverse', type=bool, default=True)
+    parser.add_argument('--reverse', type=str2bool, nargs='?', const=True, default=True,
+                        help='True: PUSH mode, False: PULL mode')
     args = parser.parse_args()
     main(args)
+
