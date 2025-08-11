@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import numpy as np
 import rospy
-from pushpull_suctioncup_106a.msg import SensorPacket ##############
-from pushpull_suctioncup_106a.msg import cmdPacket ##############
+from pushpull_suctioncup_106a.msg import SensorPacket ############## Gia: checked
+from pushpull_suctioncup_106a.msg import cmdPacket ############## Gia: checked
 from scipy import signal
 import threading
 
@@ -48,7 +48,7 @@ class P_CallbackHelp(object):
         self.PressureOffset = np.array([0.0]*4)
 
         # Initize a lock
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()############## Gia: checked
     
     def startSampling(self):
         self.msg2Sensor.cmdInput = self.START_CMD
