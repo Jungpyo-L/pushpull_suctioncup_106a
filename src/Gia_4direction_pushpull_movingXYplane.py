@@ -101,6 +101,8 @@ def main(args):
         input("Press <Enter> to start to record data")
         dataLoggerEnable(True)
         rospy.sleep(0.2)
+        rtde_help.setTCPoffset([0, 0, 0.150, 0, 0, 0])
+
 
         disengagePosition = [0.38, -0.100, 0.05]
         setOrientation = tf.transformations.quaternion_from_euler(np.pi, 0, -np.pi/2, 'sxyz')
