@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 import numpy as np
 import rospy
-from suction_cup.msg import SensorPacket
-from suction_cup.msg import cmdPacket
+from pushpull_suctioncup_106a.msg import SensorPacket ############## Gia: checked
+from pushpull_suctioncup_106a.msg import cmdPacket ############## Gia: checked
 from scipy import signal
 import threading
 
@@ -48,7 +48,7 @@ class P_CallbackHelp(object):
         self.PressureOffset = np.array([0.0]*4)
 
         # Initize a lock
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()############## Gia: checked
     
     def startSampling(self):
         self.msg2Sensor.cmdInput = self.START_CMD
@@ -76,7 +76,7 @@ class P_CallbackHelp(object):
         fs = self.samplingF
         N = self.FFTbuffer_size
         fPWM = 30
-        
+        # print("i am in the callback", flush=True) ############## Gia: checked
         # print("self.four_pressurePWM:", np.floor(self.four_pressurePWM))
         # print("self.PressureOffset: ", self.PressureOffset)
         # print("self.PressureOffsetBuffer: ", self.PressureOffsetBuffer)
@@ -123,7 +123,7 @@ class P_CallbackHelp(object):
             self.four_pressure = averagePres_dummy
             # callback delay check
             self.callback_Pressure.data = averagePres_dummy
-            self.callback_Pub.publish(self.callback_Pressure)
+            # self.callback_Pub.publish(self.callback_Pressure)n ############## Gia: checked
         
         # if averaging flag is True
         if self.startPresPWMAvg:
