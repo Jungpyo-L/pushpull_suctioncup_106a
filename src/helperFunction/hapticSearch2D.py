@@ -1,138 +1,160 @@
 #!/usr/bin/env python
-
-import os
-import datetime
 import numpy as np
-import re
-from geometry_msgs.msg import PoseStamped
-from .utils import rotation_from_quaternion, create_transform_matrix, rotationFromQuaternion, normalize, hat, quaternionFromMatrix, quaternion_from_matrix
-from scipy.spatial.transform import Rotation as Rot
-import scipy
-from icecream import ic
+import rospy
+from pushpull_suctioncup_106a.msg import SensorPacket ##############
+from pushpull_suctioncup_106a.msg import cmdPacket ##############
+from scipy import signal
+import threading
 
-
-class hapticSearch2DHelp(object):
-    def __init__(self,dP_threshold=10, dw=15, P_vac = -20000, d_lat = 0.5e-3, d_z= 1.5e-3, d_yaw = 0.3, n_ch = 4, p_reverse = False):
-        # for first performance test dw=15, d_lat = 0.5e-2, d_z= 1.5e-3
-        self.dP_threshold = dP_threshold
-        self.dw = dw * np.pi / 180.0
+class P_CallbackHelp(object):
+    def __init__(self):        
+        rospy.Subscriber("SensorPacket", SensorPacket, self.callback_P)
         
-        self.P_vac = P_vac
-        self.p_reverse = p_reverse
-        self.d_lat = d_lat
-        self.d_z_normal = d_z
-        self.d_yaw = d_yaw
+        self.START_CMD = 2
+        self.IDLE_CMD = 3
+        self.RECORD_CMD = 10
+        self.msg2Sensor = cmdPacket()
+        self.P_vac = -10000.0
+        # self.P_vac = -20000.0
 
-        # for number of chambers of the suction cup
-        self.n = n_ch
+        self.sensorCMD_Pub = rospy.Publisher('cmdPacket', cmdPacket, queue_size=10)
+
+        # callback delay test
+        self.callback_Pub = rospy.Publisher('SensorCallback', SensorPacket, queue_size=10)
+        self.callback_Pressure = SensorPacket()
+        
+        ## For pressure feedback
+        self.Psensor_Num = 4
+        self.BufferLen = 7
+
+        # self.PressureBuffer = [[0.0]*self.Psensor_Num]*self.BufferLen # JP: This may cause a problem
+        self.PressureBuffer = [[0.0] * self.Psensor_Num for _ in range(self.BufferLen)] # JP: This is the correct way to initialize a 2D list. This way, each inner list will be independent of each other.
+        self.P_idx = 0
+        self.startPresAvg = False
+        self.four_pressure = [0.0]*self.Psensor_Num
+        self.thisPres = 0
+
+        # For FFT
+        self.samplingF= 166
+        self.FFTbuffer_size = int(self.samplingF/2)    # 166 is 1 second
+        self.PressurePWMBuffer = np.array([[0]*self.Psensor_Num]*self.FFTbuffer_size)
+        self.PressureOffsetBuffer = np.array([[0]*self.Psensor_Num]*51)
+        self.PWM_idx = 0
+        self.offset_idx = 0
+        self.startPresPWMAvg = False
+        self.offsetMissing = True
+        self.four_pressurePWM = np.array([0.0]*4)
+        self.power = 0
+        self.PressureOffset = np.array([0.0]*4)
+
+        # Initize a lock
+        self.lock = threading.Lock()
+    
+    def startSampling(self):
+        self.msg2Sensor.cmdInput = self.START_CMD
+        self.sensorCMD_Pub.publish(self.msg2Sensor)
+    
+    def stopSampling(self):
+        self.msg2Sensor.cmdInput = self.IDLE_CMD
+        self.sensorCMD_Pub.publish(self.msg2Sensor)
+
+    def setNowAsOffset(self):
+        self.PressureOffset *= 0
+        rospy.sleep(0.5)
+        # print("self.PressureBuffer: ", self.PressureBuffer)
+        buffer_copy = np.copy(self.PressureBuffer)
+        self.PressureOffset = np.mean(buffer_copy, axis=0)
+
+        # # JP: The below code for acquiring lock, just in case the code keep throwing error
+        # # Acquire the lock before modifying self.PressureBuffer
+        # with self.lock:
+        #     buffer_copy = np.copy(self.PressureBuffer)
+        #     self.PressureOffset = np.mean(buffer_copy, axis=0)
         
 
-    def get_ObjectPoseStamped_from_T(self,T):   #transformation
-        thisPose = PoseStamped()
-        thisPose.header.frame_id = "base_link"
-        R = T[0:3,0:3]
-        quat = quaternion_from_matrix(R)   #original, quat matrix
-        position = T[0:3,3]
-        [thisPose.pose.position.x, thisPose.pose.position.y, thisPose.pose.position.z] = position
-        [thisPose.pose.orientation.x, thisPose.pose.orientation.y, thisPose.pose.orientation.z,thisPose.pose.orientation.w] = quat
-        return thisPose
+    def callback_P(self, data):
+        fs = self.samplingF
+        N = self.FFTbuffer_size
+        fPWM = 30
+        # print("i am in the callback", flush=True) ############## Gia: checked
+        # print("self.four_pressurePWM:", np.floor(self.four_pressurePWM))
+        # print("self.PressureOffset: ", self.PressureOffset)
+        # print("self.PressureOffsetBuffer: ", self.PressureOffsetBuffer)
 
-    def get_Tmat_from_Pose(self,PoseStamped):  #format
-        quat = [PoseStamped.pose.orientation.x, PoseStamped.pose.orientation.y, PoseStamped.pose.orientation.z, PoseStamped.pose.orientation.w]        
-        translate = [PoseStamped.pose.position.x, PoseStamped.pose.position.y, PoseStamped.pose.position.z]
-        return self.get_Tmat_from_PositionQuat(translate, quat)   # original
-        # return translate +quat    
-    
-    def get_Tmat_from_PositionQuat(self, Position, Quat):    #transformation
-        rotationMat = rotation_from_quaternion(Quat)   #original
-        T = create_transform_matrix(rotationMat, Position)
-        return T
+        # fill in the pressure data ring buffer
+        self.thisPres = np.array(data.data)
 
-    def get_PoseStamped_from_T_initPose(self, T, initPoseStamped):   #transformation
-        T_now = self.get_Tmat_from_Pose(initPoseStamped)    #original
-        targetPose = self.get_ObjectPoseStamped_from_T(np.matmul(T_now, T))   #original
-        # targetPose = self.get_ObjectPoseStamped_from_T(T)   #rtde
-        return targetPose
 
-    def get_Tmat_TranslateInBodyF(self, translate = [0., 0., 0.]): #format
-        return create_transform_matrix(np.eye(3), translate)
-    
-    def get_Tmat_TranslateInZ(self, direction = 1):     #format
-        offset = [0.0, 0.0, np.sign(direction)*self.d_z_normal]
-        # if step:
-        #     offset = [0.0, 0.0, np.sign(direction)*step]
-        return self.get_Tmat_TranslateInBodyF(translate = offset)
+        self.PressureBuffer[self.P_idx] = self.thisPres - self.PressureOffset 
+        self.P_idx += 1
 
-    def get_Tmat_TranslateInY(self, direction = 1):
-        offset = [0.0, np.sign(direction)*self.d_lat, 0.0]
-        # if step:
-        #     offset = [0.0, 0.0, np.sign(direction)*step]
-        return self.get_Tmat_TranslateInBodyF(translate = offset)
-    
-    def get_Tmat_TranslateInX(self, direction = 1):
-        offset = [np.sign(direction)*self.d_lat, 0.0, 0.0]
-        # if step:
-        #     offset = [0.0, 0.0, np.sign(direction)*step]
-        return self.get_Tmat_TranslateInBodyF(translate = offset)
-    
-    def calculate_unit_vectors(self, num_chambers):
-        return [np.array([np.cos(-np.pi / (num_chambers) + 2 * np.pi * i / num_chambers),
-                      np.sin(-np.pi / (num_chambers) + 2 * np.pi * i / num_chambers)])
-            for i in range(num_chambers)]
+        # # JP: The below code for acquiring lock, just in case the code keep throwing error
+        # # Acquire the lock before modifying self.PressureBuffer
+        # with self.lock:
+        #     self.PressureBuffer[self.P_idx] = self.thisPres - self.PressureOffset 
+        #     self.P_idx += 1
 
-    def calculate_direction_vector(self, unit_vectors, vacuum_pressures):
-        direction_vector = np.sum([vp * uv for vp, uv in zip(vacuum_pressures, unit_vectors)], axis=0)
-        return direction_vector / np.linalg.norm(direction_vector) if np.linalg.norm(direction_vector) > 0 else np.array([0, 0])
-    
-    def get_lateral_direction_vector(self, P_array, thereshold = True):
-        if thereshold:
-            th = self.dP_threshold
-        else:
-            th = 0
-        # make the pressure array positive (vacuum pressure)
-        if not self.p_reverse:
-            P_array = [-P for P in P_array]
-        # check if the invididual vacuum pressure is above the threshold
-        # if not, then set the pressure to zero
-        P_array = [P if P > th else 0 for P in P_array]
-        unit_vectors = self.calculate_unit_vectors(self.n)
-        return self.calculate_direction_vector(unit_vectors, P_array)
+        self.PressurePWMBuffer[self.PWM_idx] = self.thisPres - self.PressureOffset 
+        self.PWM_idx += 1
+
+        # if buffer is filled, then set average flag to true and reset idx
+        if self.P_idx == len(self.PressureBuffer):
+            # averaging flag is always true now, i.e. ring buffer
+            self.startPresAvg = True
+            self.P_idx = 0
         
-    def get_Tmat_lateralMove(self, P_array):
-        v = self.get_lateral_direction_vector(P_array, True)
-        v_step = v * self.d_lat
-        # positive x-axis is towards south
-        # positive y-axis is towards west
-        # positive z-axis is towards down
-        # convert the lateral direction vector to the TCP's frame
-        return self.get_Tmat_TranslateInBodyF([-v_step[1], -v_step[0], 0.0])
-    
+        # if buffer is filled, then set average flag to true and reset idx
+        if self.PWM_idx == len(self.PressurePWMBuffer):
+            # averagin flag is always true now, i.e. ring buffer
+            self.startPresPWMAvg = True
+            self.PWM_idx = 0
+
+        # if averaging flag is True
+        if self.startPresAvg:
+            averagePres_dummy = [0]*4
+
+            # let each row contribute to its column average
+            for pressure in self.PressureBuffer:
+                first = averagePres_dummy
+                second = [x / len(self.PressureBuffer) for x in pressure]
+                final_list = [sum(value) for value in zip(first, second)]
+                averagePres_dummy = final_list
+
+            self.four_pressure = averagePres_dummy
+            # callback delay check
+            self.callback_Pressure.data = averagePres_dummy
+            # self.callback_Pub.publish(self.callback_Pressure)n ############## Gia: checked
         
-    def get_Tmats_from_controller(self, P_array, controller_str = "normal"):
-        # ["normal","yaw","momentum","momentum_yaw"]
-        if controller_str == "normal":
-            T_align = np.eye(4)
-            T_later = self.get_Tmat_lateralMove(P_array)
+        # if averaging flag is True
+        if self.startPresPWMAvg:
+            averagePresPWM_dummy = [0.0]*4
 
-        return T_later, T_align
+            # run stft to each pressure sensor
+            for i in range(4):
+                f, t, Zxx = signal.stft(self.PressurePWMBuffer[:,i], fs, nperseg=self.FFTbuffer_size)
+                delta_f = f[1]-f[0]
+                idx = int(fPWM/delta_f)
+                self.power = abs(Zxx[idx])
+                mean_power = np.mean(self.power)
+                averagePresPWM_dummy[i] = mean_power
 
-    def get_Tmat_lateralMove_random(self):
-        d_lat = self.d_lat
-        theta = np.random.rand() * 2*np.pi
-        dx_lat = d_lat * np.cos(theta)
-        dy_lat = d_lat * np.sin(theta)
+            self.four_pressurePWM = averagePresPWM_dummy
+        # print("freq: ", f[idx])
+        # print("P4PWM: ", [abs(Zxx[idx-1]) , abs(Zxx[idx]), abs(Zxx[idx+1])] )
+        # print("abs(Zxx): ", np.mean(abs(Zxx), axis=1))
 
-        T = self.get_Tmat_TranslateInBodyF([dx_lat, dy_lat, 0.0])
-        return T      
+    def get_P_WENS(self):
+            # absolute pressures - P_atm for each sensor
+            P0, P1, P2, P3 = self.four_pressure    
 
-    def get_Tmat_axialMove(self, F_normal, F_normalThres):
-        
-        if F_normal > -F_normalThres[0]:
-            # print("should be pushing towards surface in cup z-dir")
-            T_normalMove = self.get_Tmat_TranlateInZ(direction = 1)
-        elif F_normal < -F_normalThres[1]:
-            # print("should be pulling away from surface in cup z-dir")
-            T_normalMove = self.get_Tmat_TranlateInZ(direction=-1)
-        else:
-            T_normalMove = np.eye(4)
-        return T_normalMove
+            # absolute cardinal direction pressures
+            PW = (P3 + P2)/2
+            PE = (P1 + P0)/2
+            PN = (P1 + P2)/2
+            PS = (P0 + P3)/2   
+
+            return PW, PE, PN, PS
+            # P0pwm = four_pressurePWM[0]
+            # P1pwm = four_pressurePWM[1]
+            # P2pwm = four_pressurePWM[2]
+            # P3pwm = four_pressurePWM[3]
