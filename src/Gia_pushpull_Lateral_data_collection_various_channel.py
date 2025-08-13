@@ -5,11 +5,11 @@ from math import pi, floor
 from std_msgs.msg import Int8
 from pushpull_suctioncup_106a.msg import PushPull
 from suction_cup.srv import Enable
-from helperFunction.SuctionP_callback_helper import P_CallbackHelp
-from helperFunction.FT_callback_helper import FT_CallbackHelp
-from helperFunction.fileSaveHelper import fileSaveHelp
-from helperFunction.rtde_helper import rtdeHelp
-from helperFunction.adaptiveMotion import adaptMotionHelp
+from helperFunction.SuctionP_callback_helper import P_CallbackHelp #####different from suction pkg
+from helperFunction.FT_callback_helper import FT_CallbackHelp #####same as suction pkg
+from helperFunction.fileSaveHelper import fileSaveHelp #####same as suction pkg
+from helperFunction.rtde_helper import rtdeHelp #####different from suction pkg
+from helperFunction.adaptiveMotion import adaptMotionHelp #####same as suction pkg bc I copied and pasted
 
 def main(args):
     # ==== 상수 정의 ====
