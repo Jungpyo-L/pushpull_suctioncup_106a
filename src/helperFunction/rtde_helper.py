@@ -12,26 +12,34 @@ from hmac import trans_36
 import numpy as np
 from geometry_msgs.msg import PoseStamped
 
-from .transformation_matrix import *
-from .utils import *
+from helperFunction.adaptiveMotion import adaptMotionHelp
+from .utils import create_transform_matrix
 
 import rtde_control
 import rtde_receive
 
+from tf.transformations import quaternion_matrix
+
 from scipy.spatial.transform import Rotation as R
 import copy
 import numpy as np
+adpt_help = adaptMotionHelp()
 
 
 
 class rtdeHelp(object):
-    def __init__(self, rtde_frequency = 125):
+    def __init__(self, rtde_frequency = 125, speed = 0.3, acc = 0.2):
         self.tfListener = tf.TransformListener()
         self.rtde_frequency = rtde_frequency
 
         self.rtde_c = rtde_control.RTDEControlInterface("10.0.0.1", rtde_frequency)
         self.rtde_r = rtde_receive.RTDEReceiveInterface("10.0.0.1", rtde_frequency)
 
+        self.checkDistThres = 1e-3
+        self.checkQuatThres = 10e-3
+        self.transformation = create_transform_matrix(np.array([[-1, 0, 0], [0, -1, 0], [0, 0, 1]]), [0, 0, 0])
+        self.speed = speed
+        self.acc = acc
 
     def _append_ns(self, in_ns, suffix):
         """
@@ -62,7 +70,7 @@ class rtdeHelp(object):
         Pose.pose.position.z = goalPosition[2]
         
         return Pose
-
+    
     def quaternion_multiply(self, q1, q2):
         w1, x1, y1, z1 = q1
         w2, x2, y2, z2 = q2
@@ -87,14 +95,13 @@ class rtdeHelp(object):
         Rx, Ry, Rz = self.getRotVector(pose)
         return [x, y, z, Rx, Ry, Rz]
     
-    def speedl(self, joint_speed, speed=0.5, acc=0.5, time=0.5, aRot='a'):
+    def speedl(self, goalPose,speed=0.5, acc=0.5, time=0.5, aRot='a'):
 
-        if len(joint_speed) != 6:
+        if len(goalPose) != 6:
             raise ValueError("Target pose must have 6 elements: [x, y, z, Rx, Ry, Rz]")
         try:
-
-            # self.rtde_c.speedL(joint_speed, acc, time, False)
-            self.rtde_c.servoL(joint_speed, speed, acc, time, 0.2, 100)
+        # Perform linear motion using moveL function
+            self.rtde_c.speedL(goalPose, self.speed, self.acc, time, aRot)
         except Exception as e:
             print(f"Error occurred during linear motion: {e}")
 
@@ -104,31 +111,51 @@ class rtdeHelp(object):
         self.rtde_c.set_payload(payload, CoG)
 
     def goToPositionOrientation(self, goalPosition, setOrientation, asynchronous = False):
-        self.goToPose(getPoseObj(goalPosition, setOrientation))
+        self.goToPose(self.getPoseObj(goalPosition, setOrientation))
 
-    def goToPose(self, goalPose, speed = 0.1, acc = 0.1, asynchronous=False):
+    def goToPose(self, goalPose, speed = 0.1, acc = 0.1, asynchronous=False):     # original? need for edge following       
         targetPose = self.getTCPPose(goalPose)
         self.rtde_c.moveL(targetPose, speed, acc, asynchronous)
 
-    def goToPoseAdaptive(self, goalPose, speed = 3.14, acc = 0.0,  time = 0.03, lookahead_time = 0.2, gain = 100.0): # normal force measurement
+    def goToPose_2Dhaptic(self, goalPose, speed = 0.3, acc = 0.3, asynchronous=False):
+        targetPose = self.getTCPPose(goalPose)
+        self.rtde_c.moveL(targetPose, speed, acc, asynchronous)
+
+    def goToPoseAdaptive(self, goalPose, speed = 0.0, acc = 0.0,  time = 0.01, lookahead_time = 0.2, gain = 100.0):
         t_start = self.rtde_c.initPeriod()
         targetPose = self.getTCPPose(goalPose)
         self.rtde_c.servoL(targetPose, speed, acc, time, lookahead_time, gain)
         self.rtde_c.waitPeriod(t_start)
-        
+    
+    def goToPoseAdaptive_2Dhaptic(self, goalPose, speed = 0.0, acc = 0.0,  time = 0.01, lookahead_time = 0.2, gain = 100.0):
+        t_start = self.rtde_c.initPeriod()
+        targetPose = self.getTCPPose(goalPose)
+        self.rtde_c.servoL(targetPose, speed, acc, time, lookahead_time, gain)
+        self.rtde_c.waitPeriod(t_start)
+
     def readCurrPositionQuat(self):
         (trans1,rot) = self.tfListener.lookupTransform('/base_link', '/tool0', rospy.Time(0))         
         return (trans1, rot) #trans1= position x,y,z, // quaternion: x,y,z,w
+
+    def stopAtCurrPose(self,asynchronous = True):
+        currPosition, orientation = self.readCurrPositionQuat()
+        self.goToPositionOrientation(currPosition, orientation, asynchronous=asynchronous)
     
     def stopAtCurrPoseAdaptive(self):
         self.rtde_c.servoStop()
         # self.rtde_c.stopScript()
 
+    # Get current pose from TF
+    def getCurrentPoseTF(self):
+        (Position, Orientation) = self.readCurrPositionQuat()
+        return self.getPoseObj(Position, Orientation)
+    
+    # Get current pose from TCP pose
     def getCurrentPose(self):
         TCPPose = self.rtde_r.getActualTCPPose()
         Position = [TCPPose[0], TCPPose[1], TCPPose[2]]
         r = R.from_rotvec(np.array([TCPPose[3], TCPPose[4], TCPPose[5]]))
-        return getPoseObj(Position, r.as_quat())
+        return self.getPoseObj(Position, r.as_quat())
 
     def getTCPoffset(self):
         return self.rtde_c.getTCPOffset()
