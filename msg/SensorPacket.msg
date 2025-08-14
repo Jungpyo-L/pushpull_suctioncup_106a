@@ -1,2 +1,3 @@
 Header header
-float32[] data
+uint16 ch # number of chambers
+float32[] data # data from each chamber
