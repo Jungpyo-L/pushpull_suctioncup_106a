@@ -15,6 +15,7 @@ from helperFunction.hapticSearch2D import hapticSearch2DHelp
 from helperFunction.SuctionP_callback_helper import P_CallbackHelp
 from suction_cup.srv import Enable
 
+
 def main(args):
     DUTYCYCLE_100 = 100
     DUTYCYCLE_0 = 0
@@ -32,7 +33,6 @@ def main(args):
     rtde_help = rtdeHelp(125); rospy.sleep(0.5)
     file_help = fileSaveHelp()
 
-
     search_help = hapticSearch2DHelp(
         d_lat=5e-3, d_yaw=1, n_ch=args.ch, p_reverse=args.reverse
     )
@@ -49,14 +49,13 @@ def main(args):
     file_help.clearTmpFolder()
     datadir = file_help.ResultSavingDirectory
 
-    # ******** disengage / engage pose  ********
+    # Pose 설정
     disengagePosition = [0.38, -0.100, 0.280]
     setOrientation = tf.transformations.quaternion_from_euler(pi, 0, -pi/2, 'sxyz')
     disEngagePose = rtde_help.getPoseObj(disengagePosition, setOrientation)
 
     engagePosition = [0.40, -0.100, 0.280]
     engagePose = rtde_help.getPoseObj(engagePosition, setOrientation)
-    # ******************************************
 
     timeLimit = 15 if not args.reverse else 10
     args.timeLimit = timeLimit
@@ -74,18 +73,25 @@ def main(args):
         else:
             msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
             print("[MODE] PULL")
+
+        # 로거 켜기 전에 상태 발행 한번 → 첫 라인 보장
         PushPull_pub.publish(msg)
+        rospy.sleep(0.1)
 
         P_help.startSampling()
         rospy.sleep(0.5)
         P_help.setNowAsOffset()
+
+        # === 여기서 로거 켜고 상태 한번 더 발행 (헤더 생성 보장) ===
         dataLoggerEnable(True)
+        rospy.sleep(0.1)
+        PushPull_pub.publish(msg)
+        rospy.sleep(0.1)
 
         rtde_help.goToPose(engagePose)
-
         startTime = time.time()
 
-        while not suctionSuccessFlag:
+        while not suctionSuccessFlag and not rospy.is_shutdown():
             P_array = P_help.four_pressure
             print("Current pressure readings:", P_array)
 
@@ -100,7 +106,7 @@ def main(args):
                 reached_vacuum = all(np.array(P_array) < P_vac)
             else:
                 # Push: 양압 기준
-                P_push_th = 10000  
+                P_push_th = 10000
                 reached_vacuum = all(np.array(P_array) > P_push_th)
                 print("Reached vacuum threshold:", reached_vacuum)
 
@@ -109,8 +115,12 @@ def main(args):
                 args.elapsedTime = time.time() - startTime
                 print("Suction engage succeeded with controller")
                 rtde_help.stopAtCurrPoseAdaptive()
-                rospy.sleep(1)
+                rospy.sleep(0.2)
+                # 마지막 상태 기록
+                PushPull_pub.publish(msg)
+                rospy.sleep(0.1)
                 break
+
             elif time.time() - startTime > timeLimit:
                 args.elapsedTime = time.time() - startTime
                 print("Suction controller failed (timeout)!")
@@ -121,7 +131,15 @@ def main(args):
                 break
 
         args.suction = suctionSuccessFlag
+
+        # 로거 끄기 전에 반드시 OFF 발행
+        msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+        PushPull_pub.publish(msg)
+        rospy.sleep(0.1)
+
         dataLoggerEnable(False)
+        rospy.sleep(0.2)
+
         P_help.stopSampling()
 
         file_help.saveDataParams(
@@ -131,14 +149,17 @@ def main(args):
 
         print("Returning to disengage pose")
         rtde_help.goToPose(disEngagePose)
-        msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
-        PushPull_pub.publish(msg)
+        rospy.sleep(0.1)
 
-        print("============ Python UR_Interface demo complete!")
+        print("============ Python UR_Interface demo complete! ============")
 
     except (rospy.ROSInterruptException, KeyboardInterrupt):
         msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
         PushPull_pub.publish(msg)
+        rospy.sleep(0.1)
+        dataLoggerEnable(False)
+        P_help.stopSampling()
+
 
 if __name__ == '__main__':
     import argparse
@@ -161,4 +182,3 @@ if __name__ == '__main__':
                         help='True: PUSH mode, False: PULL mode')
     args = parser.parse_args()
     main(args)
-
