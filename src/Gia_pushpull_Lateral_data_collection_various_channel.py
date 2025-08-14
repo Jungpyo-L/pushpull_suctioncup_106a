@@ -171,7 +171,7 @@ def main(args):
 
                 # 파일 저장
                 file_help.saveDataParams(args,
-                    appendTxt=f'jp_lateral_corner_{args.corner}_xoffset_{args.xoffset}_theta_{args.theta}_material_{args.material}')
+                    appendTxt=f'Gia_lateral_corner_{args.corner}_xoffset_{args.xoffset}_theta_{args.theta}_material_{args.material}')
                 file_help.clearTmpFolder()
                 P_help.stopSampling()
                 rospy.sleep(0.1)
