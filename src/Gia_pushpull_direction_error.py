@@ -121,14 +121,14 @@ def main(args):
             engagePosition[2] = engage_z
 
             # ==== 각도(yaw) 반복 ====
-            for i in range(round(args.angle/5)+1):
-                args.theta = round((pi/36*i)*180/pi)
+            for i in range(round(args.angle/15)+1):
+                args.theta = round((pi/12*i)*180/pi)
                 if args.startAngle > args.theta and startAngleFlag:
                     continue
                 startAngleFlag = False
 
                 # Disengage Pose 이동: chamber와 yaw 기준 포함(첫번째 코드와 같음)
-                targetOrientation = tf.transformations.quaternion_from_euler(default_yaw - 5*pi/180*i, pi, 0, 'szxy')
+                targetOrientation = tf.transformations.quaternion_from_euler(default_yaw - 15*pi/180*i, pi, 0, 'szxy')
                 targetPose_init = rtde_help.getPoseObj(disengagePosition, targetOrientation)
                 rtde_help.goToPose(targetPose_init)
 
