@@ -65,7 +65,9 @@ def main(args):
 
     # ch별 중심 yaw 기준 오프셋 적용
     if args.ch == 3: default_yaw = pi/2 - 60*pi/180
-    if args.ch == 4: default_yaw = pi/2 - 45*pi/180
+    # if args.ch == 4: default_yaw = pi/2 - 45*pi/180
+    if args.ch == 4: default_yaw = pi/2 - 45*pi/180 + 165*pi/180
+
     if args.ch == 5: default_yaw = pi/2 - 90*pi/180
     if args.ch == 6: default_yaw = pi/2 - 60*pi/180
 
