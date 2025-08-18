@@ -86,7 +86,7 @@ def main(args):
             targetPose = rtde_help.getCurrentPose()
             farFlag = True
             F_normal = FT_help.averageFz_noOffset
-            msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_0
+            msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_0
             PushPull_pub.publish(msg)
             while farFlag:
                 if F_normal > -F_normalThres[0]:
@@ -131,7 +131,7 @@ def main(args):
                 rtde_help.goToPose(targetPose_init)
 
                 # 흡착 OFF로 pushpull 설정 (메시지 타입은 pushpull_suctioncup_106a/PushPull)
-                msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_0
+                msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_0
                 PushPull_pub.publish(msg)
                 syncPub.publish(SYNC_RESET)
 
@@ -143,7 +143,7 @@ def main(args):
                 targetPose = rtde_help.getPoseObj(engagePosition, targetOrientation)
                 rtde_help.goToPose(targetPose)
                 rospy.sleep(2.0)
-                msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
+                msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_100
                 PushPull_pub.publish(msg)
 
                 # 데이터 로깅 시작/취득/정지
@@ -167,7 +167,7 @@ def main(args):
                 syncPub.publish(SYNC_STOP)
                 rospy.sleep(0.1)
 
-                msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_0
+                msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_0
                 PushPull_pub.publish(msg)
                 rtde_help.goToPose(targetPose_init)
                 rospy.sleep(0.1)
