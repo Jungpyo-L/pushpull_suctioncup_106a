@@ -53,13 +53,10 @@ def main(args):
     file_help.clearTmpFolder()
     datadir = file_help.ResultSavingDirectory
 
-    # Set TCP pose
-    rtde_help.setTCPoffset([0, 0, 0.150, 0, 0, 0])
-    
     # === 초기 disengage position 설정 ===
     # chamber 위치에 따라 기준 변경 (아래 조건은 첫번째 코드와 동일)
     if args.corner == 180:
-        disengagePosition_init = [0.6092, -.275, 0.0180]
+        disengagePosition_init = [0.6092, -.275, 0.50]
     elif args.corner == 270:
         disengagePosition_init = [0.555, 0.100, 0.0170]
     elif args.corner == 90:
@@ -207,7 +204,7 @@ if __name__ == "__main__":
     parser.add_argument('--angle', type=int, default=360)
     parser.add_argument('--startAngle', type=int, default=0)
     parser.add_argument('--normalForce', type=float, default=1.5)
-    parser.add_argument('--deformation', type=float, default=4.0)
+    parser.add_argument('--deformation', type=float, default=5.0)
     parser.add_argument('--zHeight', type=bool, default=True)
     parser.add_argument('--ch', type=int, default=4)
     parser.add_argument('--corner', type=int, default=180)
