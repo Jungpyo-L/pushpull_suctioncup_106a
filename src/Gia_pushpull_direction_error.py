@@ -53,6 +53,9 @@ def main(args):
     file_help.clearTmpFolder()
     datadir = file_help.ResultSavingDirectory
 
+    # Set TCP pose
+    rtde_help.setTCPoffset([0, 0, 0.150, 0, 0, 0])
+    
     # === 초기 disengage position 설정 ===
     # chamber 위치에 따라 기준 변경 (아래 조건은 첫번째 코드와 동일)
     if args.corner == 180:
