@@ -1,6 +1,7 @@
 #define PWM_pin 26  // A0 in ESP32
 #define Push_pin 25 // A1
 #define Pull_pin 4 // A5
+#define Pull_pin_below 36 //A4
 #define PULL_state 1
 #define PUSH_state 2
 #define STOP 0
@@ -22,6 +23,7 @@ void setup() {
   // Setup push and pull pins
   pinMode(Push_pin, OUTPUT);
   pinMode(Pull_pin, OUTPUT);
+  pinMode(Pull_pin_below, OUTPUT);
 }
 
 void loop() {
@@ -54,17 +56,20 @@ void loop() {
     ledcWrite(pwmChannel, 0);
     digitalWrite(Push_pin, LOW);
     digitalWrite(Pull_pin, LOW);
+    digitalWrite(Pull_pin_below, LOW);
     break;
   case PUSH_state:
     ledcWrite(pwmChannel, pwm_8bit);
     digitalWrite(Push_pin, HIGH);
     digitalWrite(Pull_pin, LOW);
+    digitalWrite(Pull_pin_below, LOW);
     break;
   
   case PULL_state:
     ledcWrite(pwmChannel, pwm_8bit);
     digitalWrite(Push_pin, LOW);
     digitalWrite(Pull_pin, HIGH);
+    digitalWrite(Pull_pin_below, HIGH);
     break;
   }
 
