@@ -1,7 +1,7 @@
 #define PWM_pin 26  // A0 in ESP32
 #define Push_pin 25 // A1
 #define Pull_pin 4 // A5
-#define Pull_pin_below 36 //A4
+#define Pull_pin_below 15 //D15
 #define PULL_state 1
 #define PUSH_state 2
 #define STOP 0
