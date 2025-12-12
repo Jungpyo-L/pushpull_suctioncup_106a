@@ -113,7 +113,7 @@ def main(args):
         SuctionFlag = False
 
         # ====== xoffset(0, 3, 6) 반복 ======
-        xoffsets = [0, 3, 6]
+        xoffsets = [-4,-3,-2,-1,0,1,2,3,4,5,6]
         for j in xoffsets:
             args.xoffset = j
             disengagePosition = copy.deepcopy(disengagePosition_init)
