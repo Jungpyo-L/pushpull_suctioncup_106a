@@ -56,7 +56,7 @@ def main(args):
     # === 초기 disengage position 설정 ===
     # chamber 위치에 따라 기준 변경 (아래 조건은 첫번째 코드와 동일)
     if args.corner == 180:
-        disengagePosition_init = [0.6092, -.275, 0.0530] #35mm=0.035m --> 0.035+0.0180=0.053m
+        disengagePosition_init = [0.6672, -.236, 0.0531] #35mm=0.035m --> 0.035+0.0180=0.053m
     elif args.corner == 270:
         disengagePosition_init = [0.555, 0.100, 0.0170] #25mm=0.025m --> 0.025+0.0170=0.042m
     elif args.corner == 90:
@@ -179,7 +179,10 @@ def main(args):
                 rospy.sleep(0.1)
                 dataLoggerEnable(False)
                 file_help.saveDataParams(args,
-                    appendTxt=f'Gia_lateral_corner_{args.corner}_xoffset_{j}_theta_{args.theta}_deformation_{args.deformation_material_{args.material}}')
+                    appendTxt=f'Gia_lateral_deformation_{args.deformation}_corner_{args.corner}_xoffset_{j}_theta_{args.theta}_material_{args.material}')
+                
+            
+
                 file_help.clearTmpFolder()
                 P_help.stopSampling()
                 rospy.sleep(0.1)
