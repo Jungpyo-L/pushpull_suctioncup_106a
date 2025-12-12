@@ -56,11 +56,11 @@ def main(args):
     # === 초기 disengage position 설정 ===
     # chamber 위치에 따라 기준 변경 (아래 조건은 첫번째 코드와 동일)
     if args.corner == 180:
-        disengagePosition_init = [0.6092, -.275, 0.0180]
+        disengagePosition_init = [0.6092, -.275, 0.0530] #35mm=0.035m --> 0.035+0.0180=0.053m
     elif args.corner == 270:
-        disengagePosition_init = [0.555, 0.100, 0.0170]
+        disengagePosition_init = [0.555, 0.100, 0.0170] #25mm=0.025m --> 0.025+0.0170=0.042m
     elif args.corner == 90:
-        disengagePosition_init = [0.6165, -.2258, 0.0170]
+        disengagePosition_init = [0.6165, -.2258, 0.0170] #30mm=0.03m --> 0.03+0.0170=0.047m    
     args.disengagePosition_init = disengagePosition_init
 
     # ch별 중심 yaw 기준 오프셋 적용
