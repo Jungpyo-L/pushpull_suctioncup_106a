@@ -2,3 +2,4 @@
 /SensorPacket
 /PushPull
 /endEffectorPose
+/sync
