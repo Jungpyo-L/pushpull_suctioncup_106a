@@ -83,6 +83,31 @@ class adaptMotionHelp(object):
         #     offset = [0.0, 0.0, np.sign(direction)*step]
         return self.get_Tmat_TranlateInBodyF(translate = offset)
     
+    def get_Tmats_RotationAtX(self, direction = 1):
+        rot_axis = np.array([1,0,0])
+        omega_hat = hat(rot_axis)
+        Rw = scipy.linalg.expm(np.sign(direction)*self.dw * omega_hat)
+        T_align = create_transform_matrix(Rw, [0,0,0])
+
+        return T_align
+    
+    def get_Tmats_RotationAtY(self, direction = 1):
+        rot_axis = np.array([0,1,0])
+        omega_hat = hat(rot_axis)
+        Rw = scipy.linalg.expm(np.sign(direction)*self.dw * omega_hat)
+        T_align = create_transform_matrix(Rw, [0,0,0])
+
+        return T_align
+    
+    def get_Tmats_RotationAtZ(self, direction = 1):
+        rot_axis = np.array([0,0,1])
+        omega_hat = hat(rot_axis)
+        Rw = scipy.linalg.expm(np.sign(direction)*self.dw * omega_hat)
+        T_align = create_transform_matrix(Rw, [0,0,0])
+
+        return T_align
+    
+    
     def get_Tmat_alignSuction(self, P_array, weightVal=1.0):
         dw = self.dw
         dP_threshold = self.dP_threshold
@@ -404,6 +429,9 @@ class adaptMotionHelp(object):
         # print("b: ", b)
         
         return T, weightVal
+    
+
+
 
     def get_Tmat_lateralMove(self, P_array, weightVal=1.0):
         d_lat = self.d_lat*5.0
