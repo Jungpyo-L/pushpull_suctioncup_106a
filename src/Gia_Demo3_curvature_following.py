@@ -23,7 +23,6 @@ import time
 
 from netft_utils.srv import *
 from edg_ur10.srv import *
-from suction_cup.srv import Enable
 from std_msgs.msg import Int8
 from pushpull_suctioncup_106a.msg import PushPull
 
@@ -46,15 +45,8 @@ def main():
   rtde_help = rtdeHelp(125)
   adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   P_help = P_CallbackHelp()  # Pressure sensor helper
-  file_help = fileSaveHelp()
+  file_help = fileSaveHelp()  # File saving helper
   rospy.sleep(0.5)
-  
-  # Setup data logger service
-  rospy.wait_for_service('data_logging')
-  dataLoggerEnable = rospy.ServiceProxy('data_logging', Enable)
-  dataLoggerEnable(False)  # Reset data logger
-  rospy.sleep(1)
-  file_help.clearTmpFolder()
   
   # === PushPull 토픽/메세지 ===
   DUTYCYCLE_100 = 100
@@ -105,14 +97,13 @@ def main():
     align_tolerance = 5.0  # If |P_E - P_W| < 5, stop rotating
     z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
     
-    # File saving parameters - based on lateral movement distance
-    save_distance_threshold = 0.001  # Save every 1mm (0.001m) of lateral movement
-    iteration_count = 0
-    last_save_y = None  # y position at last save
-    
-    # Start data logging
-    dataLoggerEnable(True)
-    rospy.sleep(0.2)
+    # Data saving setup
+    class DataArgs:
+        pass
+    data_args = DataArgs()
+    save_interval = 0.5  # Save every 0.5 seconds
+    last_save_time = time.time()
+    save_counter = 0
     
     while 1:
         # Get pressure data
@@ -189,6 +180,37 @@ def main():
         # Debug print
         print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}")
 
+        # Save data every 0.5 seconds
+        current_time = time.time()
+        if current_time - last_save_time >= save_interval:
+            # Store data in args object
+            data_args.pressure_filtered = np.array(pressure_filtered)
+            data_args.pressure_avg = np.array(pressure_avg)
+            data_args.P_E = P_E
+            data_args.P_W = P_W
+            data_args.P_N = P_N
+            data_args.P_S = P_S
+            data_args.pressure_mean = pressure_mean
+            data_args.pressure_diff = pressure_diff
+            data_args.P_diff = P_diff
+            data_args.align_direction = align_direction
+            data_args.z_direction = z_direction
+            data_args.current_y = current_y
+            data_args.target_y = positionA_y_end
+            # Convert PoseStamped to arrays for mat file saving
+            data_args.current_position = np.array([currentPose.pose.position.x, currentPose.pose.position.y, currentPose.pose.position.z])
+            data_args.current_orientation = np.array([currentPose.pose.orientation.x, currentPose.pose.orientation.y, currentPose.pose.orientation.z, currentPose.pose.orientation.w])
+            data_args.target_pressure = target_pressure
+            data_args.pressure_threshold = pressure_threshold
+            data_args.align_tolerance = align_tolerance
+            data_args.z_tolerance = z_tolerance
+            data_args.timestamp = current_time
+            
+            # Save to mat file
+            file_help.saveDataParams(data_args, appendTxt=f'curvature_following_{save_counter:04d}')
+            save_counter += 1
+            last_save_time = current_time
+
         if rospy.is_shutdown():
             # Stop push before returning
             msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
@@ -202,55 +224,6 @@ def main():
         y_distance_traveled = abs(current_y - positionA[1])  # Distance from start
         target_distance = 0.10  # 10cm = 0.10m
         
-        # Periodic file saving based on lateral movement distance
-        iteration_count += 1
-        should_save = False
-        lateral_distance_moved = 0.0
-        
-        if last_save_y is None:
-            # First iteration - save initial position
-            should_save = True
-            lateral_distance_moved = 0.0
-        else:
-            # Check if lateral movement distance exceeds threshold
-            lateral_distance_moved = abs(current_y - last_save_y)
-            if lateral_distance_moved >= save_distance_threshold:
-                should_save = True
-        
-        if should_save:
-            # Stop data logging temporarily to save
-            dataLoggerEnable(False)
-            rospy.sleep(0.1)
-            
-            # Create args object with current state for saving
-            class Args:
-                pass
-            args = Args()
-            args.current_y = current_y
-            args.target_y = positionA_y_end
-            args.pressure_mean = pressure_mean
-            args.pressure_filtered = pressure_filtered
-            args.P_E = P_E
-            args.P_W = P_W
-            args.P_N = P_N
-            args.P_S = P_S
-            args.align_direction = align_direction
-            args.z_direction = z_direction
-            args.iteration = iteration_count
-            args.y_distance_traveled = y_distance_traveled
-            args.lateral_distance_since_last_save = lateral_distance_moved
-            
-            # Save data
-            file_help.saveDataParams(args, 
-                appendTxt=f'curvature_following_iter_{iteration_count}_y_{current_y:.4f}_dist_{y_distance_traveled:.4f}')
-            file_help.clearTmpFolder()
-            
-            # Restart data logging
-            dataLoggerEnable(True)
-            rospy.sleep(0.1)
-            last_save_y = current_y
-            print(f"Data saved at iteration {iteration_count}, y={current_y:.5f}, dist={y_distance_traveled:.5f}m, lateral_moved={lateral_distance_moved*1000:.2f}mm")
-        
         if y_distance_traveled >= target_distance:
             print(f"Reached target distance! Traveled: {y_distance_traveled:.5f}m (target: {target_distance:.5f}m)")
             print(f"Current y: {current_y:.5f}, Start y: {positionA[1]:.5f}, Target y: {positionA_y_end:.5f}")
@@ -261,20 +234,6 @@ def main():
     msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
     PushPull_pub.publish(msg)
     rospy.sleep(0.1)
-    
-    # Stop data logging
-    dataLoggerEnable(False)
-    rospy.sleep(0.1)
-    
-    # Final save
-    class Args:
-        pass
-    args = Args()
-    currentPose = rtde_help.getCurrentPose()
-    args.final_y = currentPose.pose.position.y
-    args.total_iterations = iteration_count
-    file_help.saveDataParams(args, appendTxt=f'curvature_following_final_iter_{iteration_count}')
-    file_help.clearTmpFolder()
     
     # Stop pressure sampling
     P_help.stopSampling()
