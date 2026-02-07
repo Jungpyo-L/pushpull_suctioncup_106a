@@ -42,7 +42,7 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0015) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  adaptHelp = adaptMotionHelp(d_lat=0.002, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
   
@@ -62,8 +62,8 @@ def main():
   # rospy.sleep(0.2)
 
   # Set the pose A
-  positionA = [0.45465, 0.02501, 0.23657]  # Starting position
-  positionA_y_end = (0.02501 - 0.1)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
+  positionA = [0.58678, 0.01299, 0.02846]  # Starting position
+  positionA_y_end = (0.01299 - 0.1)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
   orientationA = tf.transformations.quaternion_from_euler(np.pi, 0, -np.pi/2,'sxyz') #static (s) rotating (r)
   poseA = rtde_help.getPoseObj(positionA, orientationA)
 
