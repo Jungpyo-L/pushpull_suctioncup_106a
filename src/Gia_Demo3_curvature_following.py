@@ -25,6 +25,7 @@ from netft_utils.srv import *
 from edg_ur10.srv import *
 from std_msgs.msg import Int8
 from pushpull_suctioncup_106a.msg import PushPull
+from suction_cup.srv import Enable
 
 from helperFunction.rtde_helper import rtdeHelp
 from helperFunction.adaptiveMotion import adaptMotionHelp
@@ -45,8 +46,15 @@ def main():
   rtde_help = rtdeHelp(125)
   adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   P_help = P_CallbackHelp()  # Pressure sensor helper
-  file_help = fileSaveHelp()  # File saving helper
+  file_help = fileSaveHelp()
   rospy.sleep(0.5)
+  
+  # === 데이터 로깅 서비스 설정 ===
+  rospy.wait_for_service('data_logging')
+  dataLoggerEnable = rospy.ServiceProxy('data_logging', Enable)
+  dataLoggerEnable(False)
+  rospy.sleep(1)
+  file_help.clearTmpFolder()
   
   # === PushPull 토픽/메세지 ===
   DUTYCYCLE_100 = 100
@@ -97,13 +105,23 @@ def main():
     align_tolerance = 5.0  # If |P_E - P_W| < 5, stop rotating
     z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
     
-    # Data saving setup
-    class DataArgs:
-        pass
-    data_args = DataArgs()
-    save_interval = 0.5  # Save every 0.5 seconds
+    # === 데이터 로깅 시작 ===
+    dataLoggerEnable(True)
+    rospy.sleep(0.2)
+    
+    # === 0.5초마다 mat 파일 저장을 위한 시간 추적 ===
     last_save_time = time.time()
-    save_counter = 0
+    save_interval = 0.5  # 0.5초마다 저장
+    save_count = 0  # 저장 횟수 카운터
+    
+    # === args 객체 생성 (데이터 저장용) ===
+    class Args:
+        pass
+    args = Args()
+    args.target_pressure = target_pressure
+    args.pressure_threshold = pressure_threshold
+    args.align_tolerance = align_tolerance
+    args.z_tolerance = z_tolerance
     
     while 1:
         # Get pressure data
@@ -180,36 +198,40 @@ def main():
         # Debug print
         print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}")
 
-        # Save data every 0.5 seconds
+        # === 0.5초마다 mat 파일 저장 ===
         current_time = time.time()
         if current_time - last_save_time >= save_interval:
-            # Store data in args object
-            data_args.pressure_filtered = np.array(pressure_filtered)
-            data_args.pressure_avg = np.array(pressure_avg)
-            data_args.P_E = P_E
-            data_args.P_W = P_W
-            data_args.P_N = P_N
-            data_args.P_S = P_S
-            data_args.pressure_mean = pressure_mean
-            data_args.pressure_diff = pressure_diff
-            data_args.P_diff = P_diff
-            data_args.align_direction = align_direction
-            data_args.z_direction = z_direction
-            data_args.current_y = current_y
-            data_args.target_y = positionA_y_end
-            # Convert PoseStamped to arrays for mat file saving
-            data_args.current_position = np.array([currentPose.pose.position.x, currentPose.pose.position.y, currentPose.pose.position.z])
-            data_args.current_orientation = np.array([currentPose.pose.orientation.x, currentPose.pose.orientation.y, currentPose.pose.orientation.z, currentPose.pose.orientation.w])
-            data_args.target_pressure = target_pressure
-            data_args.pressure_threshold = pressure_threshold
-            data_args.align_tolerance = align_tolerance
-            data_args.z_tolerance = z_tolerance
-            data_args.timestamp = current_time
+            # 데이터 로깅 정지
+            dataLoggerEnable(False)
+            rospy.sleep(0.1)
             
-            # Save to mat file
-            file_help.saveDataParams(data_args, appendTxt=f'curvature_following_{save_counter:04d}')
-            save_counter += 1
+            # 현재 상태를 args에 저장
+            args.current_y = current_y
+            args.pressure_filtered = pressure_filtered
+            args.P_E = P_E
+            args.P_W = P_W
+            args.P_N = P_N
+            args.P_S = P_S
+            args.pressure_mean = pressure_mean
+            args.align_direction = align_direction
+            args.z_direction = z_direction
+            args.save_count = save_count
+            
+            # mat 파일 저장
+            file_help.saveDataParams(args,
+                appendTxt=f'curvature_following_save_{save_count:04d}')
+            
+            # 임시 폴더 정리
+            file_help.clearTmpFolder()
+            
+            # 데이터 로깅 재시작
+            dataLoggerEnable(True)
+            rospy.sleep(0.2)
+            
+            # 시간 및 카운터 업데이트
             last_save_time = current_time
+            save_count += 1
+            print(f"Saved mat file #{save_count}")
 
         if rospy.is_shutdown():
             # Stop push before returning
@@ -235,6 +257,18 @@ def main():
     PushPull_pub.publish(msg)
     rospy.sleep(0.1)
     
+    # === 데이터 로깅 정지 및 마지막 저장 ===
+    dataLoggerEnable(False)
+    rospy.sleep(0.1)
+    
+    # 마지막 데이터 저장
+    currentPose = rtde_help.getCurrentPose()
+    args.current_y = currentPose.pose.position.y
+    args.save_count = save_count
+    file_help.saveDataParams(args,
+        appendTxt=f'curvature_following_final_save_{save_count:04d}')
+    file_help.clearTmpFolder()
+    
     # Stop pressure sampling
     P_help.stopSampling()
 
@@ -244,8 +278,24 @@ def main():
 
     print("============ Python UR_Interface demo complete!")
   except rospy.ROSInterruptException:
+    # 예외 발생 시 데이터 로깅 정지
+    try:
+      dataLoggerEnable(False)
+      P_help.stopSampling()
+      msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+      PushPull_pub.publish(msg)
+    except:
+      pass
     return
   except KeyboardInterrupt:
+    # 예외 발생 시 데이터 로깅 정지
+    try:
+      dataLoggerEnable(False)
+      P_help.stopSampling()
+      msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+      PushPull_pub.publish(msg)
+    except:
+      pass
     return  
 
 
