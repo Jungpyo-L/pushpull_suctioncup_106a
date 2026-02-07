@@ -42,7 +42,7 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.002, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
   
