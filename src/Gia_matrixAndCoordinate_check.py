@@ -39,7 +39,7 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0015)
+  adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0015) #lateral --> align --> normal = sliding right --> rolling --> moving down
   rospy.sleep(0.5)
 
   # Set the TCP offset and calibration matrix (ex, suction cup: 0.150, ATI_default: 0.464)
@@ -68,11 +68,11 @@ def main():
     timeLimit = 3
     while 1:
         # calculate transformation matrices
-        T_later = adaptHelp.get_Tmat_TranlateInY(direction=-1)
-        T_align = adaptHelp.get_Tmats_RotationAtX(direction=-1)
-        T_normalMove = adaptHelp.get_Tmat_TranlateInZ(direction=1)
-
-        T_move =  T_later @ T_align @ T_normalMove # lateral --> align --> normal
+        T_later = adaptHelp.get_Tmat_TranlateInY(direction=-1) # direciton=-1 means moving right (in -y direciton, front view)
+        T_align = adaptHelp.get_Tmats_RotationAtX(direction=-1) # direciton=-1 means rotating clockwise (roll, front view)
+        T_normalMove = adaptHelp.get_Tmat_TranlateInZ(direction=1) # direciton=1 means moving down (in z direction, front view)
+        T_move =  T_later @ T_align @ T_normalMove # lateral --> align --> normal = sliding right --> rolling --> moving down
+        
         # move to new pose adaptively
         measuredCurrPose = rtde_help.getCurrentPose()
         deltaPose = adaptHelp.get_PoseStamped_from_T_initPose(T_move, measuredCurrPose)
