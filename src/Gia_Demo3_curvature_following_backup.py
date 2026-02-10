@@ -162,6 +162,7 @@ def main():
         # === 경향성 계산 (변화율) ===
         P_E_trend = 0.0  # P_E의 변화율 (양수면 증가, 음수면 감소)
         P_W_trend = 0.0  # P_W의 변화율 (양수면 증가, 음수면 감소)
+        trend_threshold = 0.5  # 트렌드가 의미있을 최소 변화량
         
         if len(P_E_history) >= 3:  # 최소 3개 이상의 데이터가 있어야 경향성 계산 가능
             # 최근 값들의 평균 변화율 계산
@@ -180,25 +181,45 @@ def main():
                 P_W_new_avg = np.mean(recent_P_W[mid_point:])
                 P_W_trend = P_W_new_avg - P_W_old_avg
         
-        # === 현재 값과 경향성을 고려한 예측 값 계산 ===
-        # 경향성이 있으면 미래 값을 예측 (예: 다음 스텝에서의 예상 값)
-        P_E_predicted = P_E + P_E_trend * trend_weight
-        P_W_predicted = P_W + P_W_trend * trend_weight
-        
-        # === 현재 값과 예측 값을 모두 고려하여 방향 결정 ===
-        # 현재 차이와 예측 차이를 가중 평균
+        # === 현재 값 기반 방향 결정 ===
         P_diff_current = P_E - P_W
-        P_diff_predicted = P_E_predicted - P_W_predicted
-        P_diff_combined = (1.0 - trend_weight) * P_diff_current + trend_weight * P_diff_predicted
+        current_based_direction = 0
+        if abs(P_diff_current) >= align_tolerance:
+            if P_diff_current > 0:
+                current_based_direction = 1  # CCW
+            else:
+                current_based_direction = -1  # CW
         
-        P_diff = abs(P_diff_combined)
+        # === 트렌드 기반 방향 결정 (적응적) ===
+        # P_W가 감소하거나 P_E가 증가하면 → CCW (1)
+        # P_W가 증가하거나 P_E가 감소하면 → CW (-1)
+        trend_based_direction = 0
+        if abs(P_E_trend) >= trend_threshold or abs(P_W_trend) >= trend_threshold:
+            # P_E가 증가하는 경향이 있으면 CCW
+            # P_W가 감소하는 경향이 있으면 CCW
+            if P_E_trend > trend_threshold or P_W_trend < -trend_threshold:
+                trend_based_direction = 1  # CCW
+            # P_E가 감소하는 경향이 있으면 CW
+            # P_W가 증가하는 경향이 있으면 CW
+            elif P_E_trend < -trend_threshold or P_W_trend > trend_threshold:
+                trend_based_direction = -1  # CW
         
-        if P_diff < align_tolerance:
-            align_direction = 0  # no rotation needed (within tolerance)
-        elif P_diff_combined > 0:  # P_E가 P_W보다 크거나 커질 것으로 예상
-            align_direction = 1  # counterclockwise
-        else:  # P_E < P_W 또는 작아질 것으로 예상
-            align_direction = -1  # clockwise
+        # === 현재 값과 트렌드를 적응적으로 결합하여 최종 방향 결정 ===
+        # 트렌드가 명확하면 트렌드를 우선, 그렇지 않으면 현재 값 사용
+        if trend_based_direction != 0:
+            # 트렌드가 있으면 트렌드와 현재 값을 가중 평균
+            # 트렌드가 강할수록 더 많이 반영
+            trend_strength = min(abs(P_E_trend), abs(P_W_trend)) if (abs(P_E_trend) > 0 and abs(P_W_trend) > 0) else max(abs(P_E_trend), abs(P_W_trend))
+            adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.8)  # 최대 0.8까지
+            
+            combined_signal = (1.0 - adaptive_weight) * current_based_direction + adaptive_weight * trend_based_direction
+            align_direction = int(np.sign(combined_signal)) if abs(combined_signal) > 0.1 else trend_based_direction
+        else:
+            # 트렌드가 없거나 약하면 현재 값 기반으로 결정
+            align_direction = current_based_direction
+        
+        # 최종 차이값 계산 (디버그용)
+        P_diff = abs(P_diff_current)
        
         # Determine z direction based on average pressure
         # pressure_mean < 20: move down (direction=1)
@@ -240,7 +261,7 @@ def main():
         current_y = currentPose.pose.position.y
        
         # Debug print
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}")
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}")
 
 
         if rospy.is_shutdown():
