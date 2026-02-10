@@ -105,6 +105,12 @@ def main():
     align_tolerance = 5.0  # If |P_E - P_W| < 5, stop rotating
     z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
     
+    # === 경향성 추적을 위한 히스토리 설정 ===
+    history_size = 10  # 최근 N개의 값을 저장하여 경향성 계산
+    P_E_history = []  # P_E 값의 히스토리
+    P_W_history = []  # P_W 값의 히스토리
+    trend_weight = 0.5  # 경향성 가중치 (0.0~1.0, 높을수록 경향성에 더 의존)
+    
     # === 데이터 로깅 시작 ===
     dataLoggerEnable(True)
     rospy.sleep(0.2)
@@ -144,16 +150,55 @@ def main():
         # Calculate average pressure
         pressure_mean = np.mean(pressure_filtered)
         
-        # Determine align direction based on P_E and P_W difference
-        # P_E > P_W: counterclockwise (direction=1)
-        # P_E < P_W: clockwise (direction=-1)
-        # If |P_E - P_W| < align_tolerance, stop rotating
-        P_diff = abs(P_E - P_W)
+        # === 경향성 추적: 히스토리에 현재 값 추가 ===
+        P_E_history.append(P_E)
+        P_W_history.append(P_W)
+        
+        # 히스토리 크기 제한
+        if len(P_E_history) > history_size:
+            P_E_history.pop(0)
+            P_W_history.pop(0)
+        
+        # === 경향성 계산 (변화율) ===
+        P_E_trend = 0.0  # P_E의 변화율 (양수면 증가, 음수면 감소)
+        P_W_trend = 0.0  # P_W의 변화율 (양수면 증가, 음수면 감소)
+        
+        if len(P_E_history) >= 3:  # 최소 3개 이상의 데이터가 있어야 경향성 계산 가능
+            # 최근 값들의 평균 변화율 계산
+            recent_window = min(5, len(P_E_history))  # 최근 5개 또는 전체 사용
+            recent_P_E = P_E_history[-recent_window:]
+            recent_P_W = P_W_history[-recent_window:]
+            
+            # 선형 회귀를 통한 경향성 계산 (간단한 방법: 최근 값과 이전 값의 차이)
+            if len(recent_P_E) >= 2:
+                # 최근 절반과 이전 절반의 평균 차이로 경향성 계산
+                mid_point = len(recent_P_E) // 2
+                P_E_old_avg = np.mean(recent_P_E[:mid_point])
+                P_E_new_avg = np.mean(recent_P_E[mid_point:])
+                P_E_trend = P_E_new_avg - P_E_old_avg
+                
+                P_W_old_avg = np.mean(recent_P_W[:mid_point])
+                P_W_new_avg = np.mean(recent_P_W[mid_point:])
+                P_W_trend = P_W_new_avg - P_W_old_avg
+        
+        # === 현재 값과 경향성을 고려한 예측 값 계산 ===
+        # 경향성이 있으면 미래 값을 예측 (예: 다음 스텝에서의 예상 값)
+        P_E_predicted = P_E + P_E_trend * trend_weight
+        P_W_predicted = P_W + P_W_trend * trend_weight
+        
+        # === 현재 값과 예측 값을 모두 고려하여 방향 결정 ===
+        # 현재 차이와 예측 차이를 가중 평균
+        P_diff_current = P_E - P_W
+        P_diff_predicted = P_E_predicted - P_W_predicted
+        P_diff_combined = (1.0 - trend_weight) * P_diff_current + trend_weight * P_diff_predicted
+        
+        P_diff = abs(P_diff_combined)
+        
         if P_diff < align_tolerance:
             align_direction = 0  # no rotation needed (within tolerance)
-        elif P_E > P_W:
+        elif P_diff_combined > 0:  # P_E가 P_W보다 크거나 커질 것으로 예상
             align_direction = 1  # counterclockwise
-        else:  # P_E < P_W
+        else:  # P_E < P_W 또는 작아질 것으로 예상
             align_direction = -1  # clockwise
         
         # Determine z direction based on average pressure
@@ -196,7 +241,7 @@ def main():
         current_y = currentPose.pose.position.y
         
         # Debug print
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}")
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}")
 
         # === 0.5초마다 mat 파일 저장 ===
         current_time = time.time()
