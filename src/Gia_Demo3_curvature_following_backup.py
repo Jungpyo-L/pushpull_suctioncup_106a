@@ -53,8 +53,17 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.0015, dw=0.55, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  adaptHelp = adaptMotionHelp(d_lat=0.0015, dw=0.57, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
 # adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  
+  # === d_w 동적 조정을 위한 변수 설정 ===
+  initial_dw_deg = 0.57  # 초기 d_w 값 (도 단위)
+  initial_dw_rad = initial_dw_deg * np.pi / 180.0  # 라디안으로 변환
+  dw_change_deg = 0.03  # align 변경 시 d_w 변화량 (도 단위)
+  dw_change_rad = dw_change_deg * np.pi / 180.0  # 라디안으로 변환
+  prev_align_direction = 0  # 이전 align_direction 값
+  align_repeat_count = 0  # 같은 align_direction 값이 반복된 횟수
+  align_repeat_threshold = 2  # 초기값으로 복귀하기 위한 반복 횟수
 
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
@@ -221,6 +230,27 @@ def main():
         # 최종 차이값 계산 (디버그용)
         P_diff = abs(P_diff_current)
        
+        # === d_w 동적 조정 로직 ===
+        # align_direction이 변경되었는지 확인 (-1 <-> 1 변경)
+        if prev_align_direction != 0 and align_direction != 0:
+            if prev_align_direction != align_direction:
+                # align_direction이 변경됨 (-1에서 1로 또는 1에서 -1로)
+                # d_w를 0.03도만큼 변경 (라디안으로 변환하여 적용)
+                adaptHelp.dw += dw_change_rad
+                align_repeat_count = 0  # 반복 카운트 리셋
+                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {adaptHelp.dw * 180.0 / np.pi:.4f} deg")
+            elif prev_align_direction == align_direction:
+                # 같은 align_direction 값이 반복됨
+                align_repeat_count += 1
+                if align_repeat_count >= align_repeat_threshold:
+                    # 2번 반복되면 초기값으로 복귀
+                    adaptHelp.dw = initial_dw_rad
+                    align_repeat_count = 0  # 카운트 리셋
+                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_deg:.4f} deg")
+        
+        # 현재 align_direction을 이전 값으로 저장
+        prev_align_direction = align_direction
+       
         # Determine z direction based on average pressure
         # pressure_mean < 20: move down (direction=1)
         # pressure_mean > 20: move up (direction=-1)
@@ -261,7 +291,8 @@ def main():
         current_y = currentPose.pose.position.y
        
         # Debug print
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}")
+        current_dw_deg = adaptHelp.dw * 180.0 / np.pi
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}")
 
 
         if rospy.is_shutdown():
