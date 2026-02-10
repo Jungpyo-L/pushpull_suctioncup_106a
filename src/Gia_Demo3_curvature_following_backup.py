@@ -53,7 +53,9 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  adaptHelp = adaptMotionHelp(d_lat=0.0015, dw=0.55, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+# adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
  
@@ -75,7 +77,9 @@ def main():
 
 
   # Set the pose A
-  positionA = [0.58678, 0.01299, 0.02846]  # Starting position
+  positionA = [0.41506, 0.13596, 0.04537]  # Starting position
+#   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
+
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
   orientationA = tf.transformations.quaternion_from_euler(np.pi, 0, -np.pi/2,'sxyz') #static (s) rotating (r)
   poseA = rtde_help.getPoseObj(positionA, orientationA)
@@ -110,9 +114,13 @@ def main():
     input("Press <Enter> to start surface following")
 
 
-    target_pressure = 20.0  # Target pressure value
-    pressure_threshold = 10.0  # Values below this are set to 0
-    align_tolerance = 5.0  # If |P_E - P_W| < 5, stop rotating
+    # target_pressure = 20.0  # Target pressure value
+    target_pressure = 17.0  # Target pressure value
+
+    # pressure_threshold = 10.0  # Values below this are set to 0
+    pressure_threshold = 5.0  # Values below this are set to 0
+
+    align_tolerance = 2.0  # If |P_E - P_W| < 5, stop rotating
     z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
    
     while 1:
