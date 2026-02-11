@@ -53,17 +53,15 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.0015, dw=0.57, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
-# adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  # dw 기본값을 0.57로 설정 (라디안)
+  initial_dw_rad = 0.57  # 기본 d_w 값 (라디안)
+  adaptHelp = adaptMotionHelp(d_lat=0.0015, dw=initial_dw_rad, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   
   # === d_w 동적 조정을 위한 변수 설정 ===
-  initial_dw_deg = 0.57  # 초기 d_w 값 (도 단위)
-  initial_dw_rad = initial_dw_deg * np.pi / 180.0  # 라디안으로 변환
-  dw_change_deg = 0.03  # align 변경 시 d_w 변화량 (도 단위)
-  dw_change_rad = dw_change_deg * np.pi / 180.0  # 라디안으로 변환
+  dw_change_rad = 0.03  # align 변경 시 d_w 변화량 (라디안)
   prev_align_direction = 0  # 이전 align_direction 값
-  align_repeat_count = 0  # 같은 align_direction 값이 반복된 횟수
-  align_repeat_threshold = 2  # 초기값으로 복귀하기 위한 반복 횟수
+  align_repeat_count = 0  # 방향 변경 후 같은 방향이 반복된 횟수
+  align_repeat_threshold = 2  # 방향 변경 후 초기값으로 복귀하기 위한 반복 횟수
 
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
@@ -129,14 +127,13 @@ def main():
     # pressure_threshold = 10.0  # Values below this are set to 0
     pressure_threshold = 5.0  # Values below this are set to 0
 
-    align_tolerance = 2.0  # If |P_E - P_W| < 5, stop rotating
+    align_tolerance = 2.0  # If |P_E - P_W| < 2, stop rotating
     z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
    
-    # === 경향성 추적을 위한 히스토리 설정 ===
-    history_size = 10  # 최근 N개의 값을 저장하여 경향성 계산
-    P_E_history = []  # P_E 값의 히스토리
-    P_W_history = []  # P_W 값의 히스토리
-    trend_weight = 0.5  # 경향성 가중치 (0.0~1.0, 높을수록 경향성에 더 의존)
+    # === 2차 미분 기반 align을 위한 히스토리 설정 ===
+    delta_history_size = 10  # Δ = P_E - P_W의 히스토리 크기
+    delta_history = []  # Δ 값의 히스토리
+    delta_first_derivative_history = []  # 1차 미분 (dΔ/dt)의 히스토리
    
     while 1:
         # Get pressure data
@@ -158,95 +155,81 @@ def main():
        
         # Calculate average pressure
         pressure_mean = np.mean(pressure_filtered)
-       
-        # === 경향성 추적: 히스토리에 현재 값 추가 ===
-        P_E_history.append(P_E)
-        P_W_history.append(P_W)
         
-        # 히스토리 크기 제한
-        if len(P_E_history) > history_size:
-            P_E_history.pop(0)
-            P_W_history.pop(0)
+        # === 2차 미분 기반 align 계산 ===
+        # Step 1: Δ = P_E - P_W 계산 (1차 델타)
+        delta = P_E - P_W
+        P_diff = abs(delta)
         
-        # === 경향성 계산 (변화율) ===
-        P_E_trend = 0.0  # P_E의 변화율 (양수면 증가, 음수면 감소)
-        P_W_trend = 0.0  # P_W의 변화율 (양수면 증가, 음수면 감소)
-        trend_threshold = 0.5  # 트렌드가 의미있을 최소 변화량
+        # Step 2: Δ 히스토리에 추가
+        delta_history.append(delta)
+        if len(delta_history) > delta_history_size:
+            delta_history.pop(0)
         
-        if len(P_E_history) >= 3:  # 최소 3개 이상의 데이터가 있어야 경향성 계산 가능
-            # 최근 값들의 평균 변화율 계산
-            recent_window = min(5, len(P_E_history))  # 최근 5개 또는 전체 사용
-            recent_P_E = P_E_history[-recent_window:]
-            recent_P_W = P_W_history[-recent_window:]
-            
-            # 최근 절반과 이전 절반의 평균 차이로 경향성 계산
-            if len(recent_P_E) >= 2:
-                mid_point = len(recent_P_E) // 2
-                P_E_old_avg = np.mean(recent_P_E[:mid_point])
-                P_E_new_avg = np.mean(recent_P_E[mid_point:])
-                P_E_trend = P_E_new_avg - P_E_old_avg
-                
-                P_W_old_avg = np.mean(recent_P_W[:mid_point])
-                P_W_new_avg = np.mean(recent_P_W[mid_point:])
-                P_W_trend = P_W_new_avg - P_W_old_avg
+        # Step 3: 1차 미분 계산 (dΔ/dt, 기울기)
+        delta_first_derivative = 0.0
+        if len(delta_history) >= 2:
+            # 최근 값들의 변화율 계산 (간단한 차분법)
+            recent_window = min(5, len(delta_history))
+            recent_delta = delta_history[-recent_window:]
+            if len(recent_delta) >= 2:
+                # 최근 절반과 이전 절반의 평균 차이로 1차 미분 계산
+                mid_point = len(recent_delta) // 2
+                delta_old_avg = np.mean(recent_delta[:mid_point])
+                delta_new_avg = np.mean(recent_delta[mid_point:])
+                delta_first_derivative = delta_new_avg - delta_old_avg
         
-        # === 현재 값 기반 방향 결정 ===
-        P_diff_current = P_E - P_W
-        current_based_direction = 0
-        if abs(P_diff_current) >= align_tolerance:
-            if P_diff_current > 0:
-                current_based_direction = 1  # CCW
-            else:
-                current_based_direction = -1  # CW
+        # Step 4: 1차 미분 히스토리에 추가
+        delta_first_derivative_history.append(delta_first_derivative)
+        if len(delta_first_derivative_history) > delta_history_size:
+            delta_first_derivative_history.pop(0)
         
-        # === 트렌드 기반 방향 결정 (적응적) ===
-        # P_W가 감소하거나 P_E가 증가하면 → CCW (1)
-        # P_W가 증가하거나 P_E가 감소하면 → CW (-1)
-        trend_based_direction = 0
-        if abs(P_E_trend) >= trend_threshold or abs(P_W_trend) >= trend_threshold:
-            # P_E가 증가하는 경향이 있으면 CCW
-            # P_W가 감소하는 경향이 있으면 CCW
-            if P_E_trend > trend_threshold or P_W_trend < -trend_threshold:
-                trend_based_direction = 1  # CCW
-            # P_E가 감소하는 경향이 있으면 CW
-            # P_W가 증가하는 경향이 있으면 CW
-            elif P_E_trend < -trend_threshold or P_W_trend > trend_threshold:
-                trend_based_direction = -1  # CW
+        # Step 5: 2차 미분 계산 (d²Δ/dt², 기울기의 변화율)
+        delta_second_derivative = 0.0
+        if len(delta_first_derivative_history) >= 2:
+            # 1차 미분의 변화율 계산
+            recent_window = min(5, len(delta_first_derivative_history))
+            recent_first_deriv = delta_first_derivative_history[-recent_window:]
+            if len(recent_first_deriv) >= 2:
+                mid_point = len(recent_first_deriv) // 2
+                first_deriv_old_avg = np.mean(recent_first_deriv[:mid_point])
+                first_deriv_new_avg = np.mean(recent_first_deriv[mid_point:])
+                delta_second_derivative = first_deriv_new_avg - first_deriv_old_avg
         
-        # === 현재 값과 트렌드를 적응적으로 결합하여 최종 방향 결정 ===
-        # 트렌드가 명확하면 트렌드를 우선, 그렇지 않으면 현재 값 사용
-        if trend_based_direction != 0:
-            # 트렌드가 있으면 트렌드와 현재 값을 가중 평균
-            # 트렌드가 강할수록 더 많이 반영
-            trend_strength = min(abs(P_E_trend), abs(P_W_trend)) if (abs(P_E_trend) > 0 and abs(P_W_trend) > 0) else max(abs(P_E_trend), abs(P_W_trend))
-            adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.8)  # 최대 0.8까지
-            
-            combined_signal = (1.0 - adaptive_weight) * current_based_direction + adaptive_weight * trend_based_direction
-            align_direction = int(np.sign(combined_signal)) if abs(combined_signal) > 0.1 else trend_based_direction
+        # Step 6: 2차 미분 기반으로 align 방향 결정
+        # 2차 미분 > 0: CCW (1)
+        # 2차 미분 < 0: CW (-1)
+        # 2차 미분 = 0 또는 tolerance 내: 회전 없음 (0)
+        if abs(delta) < align_tolerance:
+            align_direction = 0  # tolerance 내이면 회전 없음
+        elif delta_second_derivative > 0:
+            align_direction = 1  # CCW
+        elif delta_second_derivative < 0:
+            align_direction = -1  # CW
         else:
-            # 트렌드가 없거나 약하면 현재 값 기반으로 결정
-            align_direction = current_based_direction
-        
-        # 최종 차이값 계산 (디버그용)
-        P_diff = abs(P_diff_current)
+            # 2차 미분이 0에 가까우면 현재 델타 값으로 결정
+            if delta > 0:
+                align_direction = 1  # CCW
+            else:
+                align_direction = -1  # CW
        
         # === d_w 동적 조정 로직 ===
-        # align_direction이 변경되었는지 확인 (-1 <-> 1 변경)
+        # align_direction이 변경되었는지 확인 (CW <-> CCW 변경, 즉 -1 <-> 1)
         if prev_align_direction != 0 and align_direction != 0:
             if prev_align_direction != align_direction:
-                # align_direction이 변경됨 (-1에서 1로 또는 1에서 -1로)
-                # d_w를 0.03도만큼 변경 (라디안으로 변환하여 적용)
-                adaptHelp.dw += dw_change_rad
+                # 방향이 변경됨 (CW -> CCW 또는 CCW -> CW)
+                # d_w를 0.57 + 0.03 = 0.60으로 설정
+                adaptHelp.dw = initial_dw_rad + dw_change_rad
                 align_repeat_count = 0  # 반복 카운트 리셋
-                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {adaptHelp.dw * 180.0 / np.pi:.4f} deg")
-            elif prev_align_direction == align_direction:
-                # 같은 align_direction 값이 반복됨
+                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {adaptHelp.dw:.4f} rad ({adaptHelp.dw * 180.0 / np.pi:.4f} deg)")
+            elif prev_align_direction == align_direction and align_direction != 0:
+                # 같은 방향이 반복됨
                 align_repeat_count += 1
                 if align_repeat_count >= align_repeat_threshold:
-                    # 2번 반복되면 초기값으로 복귀
+                    # 2번 반복되면 초기값(0.57)으로 복귀
                     adaptHelp.dw = initial_dw_rad
                     align_repeat_count = 0  # 카운트 리셋
-                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_deg:.4f} deg")
+                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_rad:.4f} rad ({initial_dw_rad * 180.0 / np.pi:.4f} deg)")
         
         # 현재 align_direction을 이전 값으로 저장
         prev_align_direction = align_direction
@@ -292,7 +275,7 @@ def main():
        
         # Debug print
         current_dw_deg = adaptHelp.dw * 180.0 / np.pi
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}")
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, Δ: {delta:.2f}, dΔ/dt: {delta_first_derivative:.3f}, d²Δ/dt²: {delta_second_derivative:.3f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg")
 
 
         if rospy.is_shutdown():
