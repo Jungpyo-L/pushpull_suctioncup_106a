@@ -235,35 +235,56 @@ def main():
         # 현재 align_direction을 이전 값으로 저장
         prev_align_direction = align_direction
        
-        # Determine z direction based on average pressure
-        # pressure_mean < 20: move down (direction=1)
-        # pressure_mean > 20: move up (direction=-1)
-        # If |pressure_mean - target_pressure| < z_tolerance, maintain z
-        pressure_diff = abs(pressure_mean - target_pressure)
-        if pressure_diff < z_tolerance:
-            z_direction = 0  # maintain z (within tolerance)
-        elif pressure_mean < target_pressure:
-            z_direction = 1  # move down
-        else:  # pressure_mean > target_pressure
-            z_direction = -1  # move up
+        # === 곡면 기울기 계산 (T_later + T_normalMove를 하나로 합침) ===
+        # 압력 차이로부터 곡면의 기울기 추정
+        dP_WE = P_W - P_E  # 서쪽-동쪽 압력 차이
+        dP_SN = P_S - P_N  # 남쪽-북쪽 압력 차이
+        
+        # 기본 이동 거리 (라디안/deg 주의!)
+        d_lat = adaptHelp.d_lat  # 횡방향 이동 거리 (미터)
+        d_z = adaptHelp.d_z_normal  # 수직 이동 거리 (미터)
+        
+        # 곡면 기울기 기반 이동 벡터 계산
+        # y 방향: 항상 오른쪽으로 이동 (-y 방향)
+        dy = -d_lat  # 항상 오른쪽으로
+        
+        # z 방향: 압력 기반 조정
+        pressure_diff = pressure_mean - target_pressure
+        if abs(pressure_diff) < z_tolerance:
+            dz = 0.0  # 목표 압력 범위 내면 z 유지
+        else:
+            # 압력이 목표보다 작으면 아래로, 크면 위로
+            # 압력 차이에 비례하여 이동 거리 조정 (부드럽게)
+            pressure_scale = np.clip(abs(pressure_diff) / 5.0, 0.0, 1.0)  # 최대 1.0으로 제한
+            if pressure_mean < target_pressure:
+                dz = d_z * pressure_scale  # 아래로
+            else:
+                dz = -d_z * pressure_scale  # 위로
+        
+        # 곡면 기울기 보정 (압력 차이로부터 기울기 추정)
+        # dP_WE가 크면 곡면이 기울어져 있음 -> z 방향 보정
+        # dP_SN이 크면 곡면이 앞뒤로 기울어져 있음 -> 추가 고려 가능
+        slope_correction_scale = 0.3  # 기울기 보정 강도 (0~1)
+        if abs(dP_WE) > pressure_threshold:
+            # 압력 차이에 비례하여 z 방향 보정
+            slope_z_correction = slope_correction_scale * (dP_WE / 20.0) * d_z  # 정규화 후 스케일링
+            dz += slope_z_correction
+        
+        # 곡면 기울기를 따라가는 통합 변환 행렬 생성
+        # [0, dy, dz] 방향으로 이동 (x=0, y=dy, z=dz)
+        T_surface_follow = adaptHelp.get_Tmat_TranlateInBodyF([0.0, dy, dz])
        
-        # Lateral movement is fixed: always move right (-y direction, 0.005)
-        T_later = adaptHelp.get_Tmat_TranlateInY(direction=-1)
-       
+        # === Align rotation: 2차 미분만 사용 (Step 6에서 이미 계산됨) ===
+        # align_direction은 Step 6에서 이미 2차 미분 기반으로 계산되었음
         # Align rotation (only if needed)
         if align_direction != 0:
             T_align = adaptHelp.get_Tmats_RotationAtX(direction=align_direction)
         else:
             T_align = np.eye(4)  # No rotation
        
-        # Normal movement (z direction, only if needed)
-        if z_direction != 0:
-            T_normalMove = adaptHelp.get_Tmat_TranlateInZ(direction=z_direction)
-        else:
-            T_normalMove = np.eye(4)  # No z movement
-       
-        # Combine transformations: lateral --> align --> normal
-        T_move = T_later @ T_align @ T_normalMove
+        # Combine transformations: surface_follow --> align
+        # 곡면 따라가기 먼저, 그 다음 회전
+        T_move = T_surface_follow @ T_align
        
         # Move to new pose adaptively
         measuredCurrPose = rtde_help.getCurrentPose()
@@ -276,7 +297,7 @@ def main():
        
         # Debug print
         current_dw_deg = adaptHelp.dw * 180.0 / np.pi
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, Δ: {delta:.2f}, dΔ/dt: {delta_first_derivative:.3f}, d²Δ/dt²: {delta_second_derivative:.3f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg")
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, Δ: {delta:.2f}, dΔ/dt: {delta_first_derivative:.3f}, d²Δ/dt²: {delta_second_derivative:.3f}, Align: {align_direction}, dz: {dz:.6f}, d_w: {current_dw_deg:.4f}deg")
         
         # === 안전 체크: 회전 각도가 너무 크면 제한 ===
         max_dw_deg = 2.0  # 최대 회전 각도 (도)

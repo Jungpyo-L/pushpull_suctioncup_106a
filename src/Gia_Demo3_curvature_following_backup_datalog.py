@@ -55,12 +55,12 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  # dw 기본값을 0.57로 설정 (라디안)
-  initial_dw_rad = 0.57  # 기본 d_w 값 (라디안)
-  adaptHelp = adaptMotionHelp(d_lat=0.0013, dw=initial_dw_rad, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  # dw 기본값을 0.57도로 설정 (adaptMotionHelp는 도 단위를 받음)
+  initial_dw_deg = 0.57  # 기본 d_w 값 (도 단위)
+  adaptHelp = adaptMotionHelp(d_lat=0.0013, dw=initial_dw_deg, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   
   # === d_w 동적 조정을 위한 변수 설정 ===
-  dw_change_rad = 0.03  # align 변경 시 d_w 변화량 (라디안)
+  dw_change_deg = 0.03  # align 변경 시 d_w 변화량 (도 단위)
   prev_align_direction = 0  # 이전 align_direction 값
   align_repeat_count = 0  # 방향 변경 후 같은 방향이 반복된 횟수
   align_repeat_threshold = 2  # 방향 변경 후 초기값으로 복귀하기 위한 반복 횟수
@@ -139,6 +139,15 @@ def main():
 
     align_tolerance = 2.0  # If |P_E - P_W| < 2, stop rotating
     z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
+   
+    # === 각도 제한 설정 ===
+    max_dw_deg = 2.0  # 한 스텝당 최대 회전 각도 (도)
+    max_angle_diff_deg = 30.0  # 초기 자세로부터 최대 누적 각도 차이 (도)
+    max_angle_diff_rad = max_angle_diff_deg * np.pi / 180.0  # 라디안으로 변환
+    
+    # 초기 자세 저장 (각도 제한 체크용)
+    initialPose = rtde_help.getCurrentPose()
+    T_initial = adaptHelp.get_Tmat_from_Pose(initialPose)
    
     # === 2차 미분 기반 align을 위한 히스토리 설정 ===
     delta_history_size = 10  # Δ = P_E - P_W의 히스토리 크기
@@ -246,51 +255,73 @@ def main():
         if prev_align_direction != 0 and align_direction != 0:
             if prev_align_direction != align_direction:
                 # 방향이 변경됨 (CW -> CCW 또는 CCW -> CW)
-                # d_w를 0.57 + 0.03 = 0.60으로 설정
-                adaptHelp.dw = initial_dw_rad + dw_change_rad
+                # d_w를 증가 (도 단위로 계산 후 라디안으로 변환)
+                new_dw_deg = initial_dw_deg + dw_change_deg
+                adaptHelp.dw = new_dw_deg * np.pi / 180.0  # 도를 라디안으로 변환
                 align_repeat_count = 0  # 반복 카운트 리셋
-                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {adaptHelp.dw:.4f} rad ({adaptHelp.dw * 180.0 / np.pi:.4f} deg)")
+                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {new_dw_deg:.4f} deg ({adaptHelp.dw:.4f} rad)")
             elif prev_align_direction == align_direction and align_direction != 0:
                 # 같은 방향이 반복됨
                 align_repeat_count += 1
                 if align_repeat_count >= align_repeat_threshold:
-                    # 2번 반복되면 초기값(0.57)으로 복귀
-                    adaptHelp.dw = initial_dw_rad
+                    # 2번 반복되면 초기값으로 복귀
+                    adaptHelp.dw = initial_dw_deg * np.pi / 180.0  # 도를 라디안으로 변환
                     align_repeat_count = 0  # 카운트 리셋
-                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_rad:.4f} rad ({initial_dw_rad * 180.0 / np.pi:.4f} deg)")
+                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_deg:.4f} deg ({adaptHelp.dw:.4f} rad)")
         
         # 현재 align_direction을 이전 값으로 저장
         prev_align_direction = align_direction
        
-        # Determine z direction based on average pressure
-        # pressure_mean < 20: move down (direction=1)
-        # pressure_mean > 20: move up (direction=-1)
-        # If |pressure_mean - target_pressure| < z_tolerance, maintain z
-        pressure_diff = abs(pressure_mean - target_pressure)
-        if pressure_diff < z_tolerance:
-            z_direction = 0  # maintain z (within tolerance)
-        elif pressure_mean < target_pressure:
-            z_direction = 1  # move down
-        else:  # pressure_mean > target_pressure
-            z_direction = -1  # move up
+        # === 곡면 기울기 계산 (T_later + T_normalMove를 하나로 합침) ===
+        # 압력 차이로부터 곡면의 기울기 추정
+        dP_WE = P_W - P_E  # 서쪽-동쪽 압력 차이
+        dP_SN = P_S - P_N  # 남쪽-북쪽 압력 차이
+        
+        # 기본 이동 거리 (라디안/deg 주의!)
+        d_lat = adaptHelp.d_lat  # 횡방향 이동 거리 (미터)
+        d_z = adaptHelp.d_z_normal  # 수직 이동 거리 (미터)
+        
+        # 곡면 기울기 기반 이동 벡터 계산
+        # y 방향: 항상 오른쪽으로 이동 (-y 방향)
+        dy = -d_lat  # 항상 오른쪽으로
+        
+        # z 방향: 압력 기반 조정
+        pressure_diff = pressure_mean - target_pressure
+        if abs(pressure_diff) < z_tolerance:
+            dz = 0.0  # 목표 압력 범위 내면 z 유지
+        else:
+            # 압력이 목표보다 작으면 아래로, 크면 위로
+            # 압력 차이에 비례하여 이동 거리 조정 (부드럽게)
+            pressure_scale = np.clip(abs(pressure_diff) / 5.0, 0.0, 1.0)  # 최대 1.0으로 제한
+            if pressure_mean < target_pressure:
+                dz = d_z * pressure_scale  # 아래로
+            else:
+                dz = -d_z * pressure_scale  # 위로
+        
+        # 곡면 기울기 보정 (압력 차이로부터 기울기 추정)
+        # dP_WE가 크면 곡면이 기울어져 있음 -> z 방향 보정
+        # dP_SN이 크면 곡면이 앞뒤로 기울어져 있음 -> 추가 고려 가능
+        slope_correction_scale = 0.3  # 기울기 보정 강도 (0~1)
+        if abs(dP_WE) > pressure_threshold:
+            # 압력 차이에 비례하여 z 방향 보정
+            slope_z_correction = slope_correction_scale * (dP_WE / 20.0) * d_z  # 정규화 후 스케일링
+            dz += slope_z_correction
+        
+        # 곡면 기울기를 따라가는 통합 변환 행렬 생성
+        # [0, dy, dz] 방향으로 이동 (x=0, y=dy, z=dz)
+        T_surface_follow = adaptHelp.get_Tmat_TranlateInBodyF([0.0, dy, dz])
        
-        # Lateral movement is fixed: always move right (-y direction, 0.005)
-        T_later = adaptHelp.get_Tmat_TranlateInY(direction=-1)
-       
+        # === Align rotation: 2차 미분만 사용 (Step 6에서 이미 계산됨) ===
+        # align_direction은 Step 6에서 이미 2차 미분 기반으로 계산되었음
         # Align rotation (only if needed)
         if align_direction != 0:
             T_align = adaptHelp.get_Tmats_RotationAtX(direction=align_direction)
         else:
             T_align = np.eye(4)  # No rotation
        
-        # Normal movement (z direction, only if needed)
-        if z_direction != 0:
-            T_normalMove = adaptHelp.get_Tmat_TranlateInZ(direction=z_direction)
-        else:
-            T_normalMove = np.eye(4)  # No z movement
-       
-        # Combine transformations: lateral --> align --> normal
-        T_move = T_later @ T_align @ T_normalMove
+        # Combine transformations: surface_follow --> align
+        # 곡면 따라가기 먼저, 그 다음 회전
+        T_move = T_surface_follow @ T_align
        
         # Move to new pose adaptively
         measuredCurrPose = rtde_help.getCurrentPose()
@@ -303,7 +334,7 @@ def main():
        
         # Debug print
         current_dw_deg = adaptHelp.dw * 180.0 / np.pi
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, Δ: {delta:.2f}, dΔ/dt: {delta_first_derivative:.3f}, d²Δ/dt²: {delta_second_derivative:.3f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg")
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, Δ: {delta:.2f}, dΔ/dt: {delta_first_derivative:.3f}, d²Δ/dt²: {delta_second_derivative:.3f}, Align: {align_direction}, dz: {dz:.6f}, d_w: {current_dw_deg:.4f}deg")
 
         # === 0.5초마다 mat 파일 저장 ===
         current_time = time.time()
@@ -321,7 +352,7 @@ def main():
             args.P_S = P_S
             args.pressure_mean = pressure_mean
             args.align_direction = align_direction
-            args.z_direction = z_direction
+            args.dz = dz
             args.delta = delta
             args.delta_first_derivative = delta_first_derivative
             args.delta_second_derivative = delta_second_derivative
