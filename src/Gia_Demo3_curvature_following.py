@@ -64,6 +64,10 @@ def main():
   prev_align_direction = 0  # 이전 align_direction 값
   align_repeat_count = 0  # 같은 align_direction 값이 반복된 횟수
   align_repeat_threshold = 2  # 초기값으로 복귀하기 위한 반복 횟수
+  # === 이전 방향 유지를 위한 변수 ===
+  last_valid_align_direction = 0  # 마지막으로 유효했던 align_direction (0이 아닌 값)
+  direction_hold_count = 0  # 현재 방향을 유지한 횟수
+  max_direction_hold = 5  # 방향을 최대 몇 번까지 유지할지 (압력 값이 0이어도)
 
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
@@ -228,12 +232,25 @@ def main():
             else:
                 # 반대 방향이면 현재 값을 우선 사용 (현재 상태가 더 중요)
                 align_direction = current_based_direction
+            # 유효한 방향이 결정되면 저장하고 카운트 리셋
+            last_valid_align_direction = align_direction
+            direction_hold_count = 0
         elif trend_based_direction != 0:
             # 현재 값이 없을 때만 트렌드 사용
             align_direction = trend_based_direction
+            # 유효한 방향이 결정되면 저장하고 카운트 리셋
+            last_valid_align_direction = align_direction
+            direction_hold_count = 0
         else:
-            # 둘 다 없으면 회전 없음
-            align_direction = 0
+            # 둘 다 없으면 이전 방향을 유지 (압력 값이 clamp되었을 때 계속 회전)
+            if last_valid_align_direction != 0 and direction_hold_count < max_direction_hold:
+                # 이전에 유효한 방향이 있었고, 아직 유지 횟수를 넘지 않았으면 이전 방향 유지
+                align_direction = last_valid_align_direction
+                direction_hold_count += 1
+            else:
+                # 이전 방향이 없거나 유지 횟수를 넘었으면 회전 없음
+                align_direction = 0
+                direction_hold_count = 0
         
         # 최종 차이값 계산 (디버그용)
         P_diff = abs(P_diff_current)
@@ -300,7 +317,7 @@ def main():
        
         # Debug print
         current_dw_deg = adaptHelp.dw * 180.0 / np.pi
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}")
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}, LastValid: {last_valid_align_direction}, HoldCount: {direction_hold_count}")
 
 
         if rospy.is_shutdown():
