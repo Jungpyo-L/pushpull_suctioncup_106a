@@ -55,7 +55,7 @@ def main():
   rtde_help = rtdeHelp(125)
   # dw 기본값을 0.57로 설정 (라디안)
   initial_dw_rad = 0.57  # 기본 d_w 값 (라디안)
-  adaptHelp = adaptMotionHelp(d_lat=0.0015, dw=initial_dw_rad, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  adaptHelp = adaptMotionHelp(d_lat=0.0013, dw=initial_dw_rad, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   
   # === d_w 동적 조정을 위한 변수 설정 ===
   dw_change_rad = 0.03  # align 변경 시 d_w 변화량 (라디안)
