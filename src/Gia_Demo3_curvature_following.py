@@ -64,10 +64,6 @@ def main():
   prev_align_direction = 0  # 이전 align_direction 값
   align_repeat_count = 0  # 같은 align_direction 값이 반복된 횟수
   align_repeat_threshold = 2  # 초기값으로 복귀하기 위한 반복 횟수
-  # === 이전 방향 유지를 위한 변수 ===
-  last_valid_align_direction = 0  # 마지막으로 유효했던 align_direction (0이 아닌 값)
-  direction_hold_count = 0  # 현재 방향을 유지한 횟수
-  max_direction_hold = 5  # 방향을 최대 몇 번까지 유지할지 (압력 값이 0이어도)
 
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
@@ -146,11 +142,16 @@ def main():
         # Get pressure data
         rospy.sleep(0.05)  # Small delay to allow pressure data to update
         pressure_avg = P_help.four_pressure
-       
+        
         # Filter pressure data: set values <= 10 to 0
         pressure_filtered = [p if p > pressure_threshold else 0.0 for p in pressure_avg]
-       
-        # Calculate P_E, P_W, P_N, P_S
+        
+        # === 원본 값으로 P_E, P_W 계산 (트렌드 추적용) ===
+        # 히스토리에는 필터링 전 원본 값을 저장하여 작은 차이도 감지 가능하도록 함
+        P_E_raw = (pressure_avg[0] + pressure_avg[1]) / 2.0
+        P_W_raw = (pressure_avg[2] + pressure_avg[3]) / 2.0
+        
+        # === 필터링된 값으로 P_E, P_W 계산 (현재 값 기반 방향 결정용) ===
         # P_E = (1st + 2nd) / 2
         # P_W = (3rd + 4th) / 2
         # P_N = (2nd + 3rd) / 2
@@ -159,13 +160,14 @@ def main():
         P_W = (pressure_filtered[2] + pressure_filtered[3]) / 2.0
         P_N = (pressure_filtered[1] + pressure_filtered[2]) / 2.0
         P_S = (pressure_filtered[0] + pressure_filtered[3]) / 2.0
-       
+        
         # Calculate average pressure
         pressure_mean = np.mean(pressure_filtered)
-       
-        # === 경향성 추적: 히스토리에 현재 값 추가 ===
-        P_E_history.append(P_E)
-        P_W_history.append(P_W)
+        
+        # === 경향성 추적: 히스토리에 원본 값 추가 ===
+        # 원본 값을 저장하여 작은 차이도 트렌드로 감지 가능하도록 함
+        P_E_history.append(P_E_raw)
+        P_W_history.append(P_W_raw)
         
         # 히스토리 크기 제한
         if len(P_E_history) > history_size:
@@ -218,39 +220,25 @@ def main():
                 trend_based_direction = -1  # CW
         
         # === 현재 값과 트렌드를 적응적으로 결합하여 최종 방향 결정 ===
-        # 현재 값이 명확하면 우선 사용 (CW/CCW 모두 제대로 작동하도록)
-        # 현재 값이 없을 때만 트렌드 사용
-        if current_based_direction != 0:
-            # 현재 값이 명확하면 현재 값을 우선 사용
-            # 트렌드와 같은 방향이면 트렌드도 고려하여 결합
-            if trend_based_direction == current_based_direction:
-                # 같은 방향이면 트렌드 강도에 따라 가중치 조정
+        # 현재 값이 모두 0이거나 매우 작으면 트렌드를 우선시
+        current_values_all_zero = (P_E == 0.0 and P_W == 0.0)
+        
+        if trend_based_direction != 0:
+            # 트렌드가 있으면 트렌드와 현재 값을 가중 평균
+            # 현재 값이 모두 0이면 트렌드에 더 높은 가중치 부여
+            if current_values_all_zero:
+                # 현재 값이 모두 0이면 트렌드를 거의 100% 신뢰
+                align_direction = trend_based_direction
+            else:
+                # 트렌드가 강할수록 더 많이 반영
                 trend_strength = min(abs(P_E_trend), abs(P_W_trend)) if (abs(P_E_trend) > 0 and abs(P_W_trend) > 0) else max(abs(P_E_trend), abs(P_W_trend))
-                adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.6)  # 최대 0.6까지 (현재 값에 더 가중치)
+                adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.8)  # 최대 0.8까지
+                
                 combined_signal = (1.0 - adaptive_weight) * current_based_direction + adaptive_weight * trend_based_direction
-                align_direction = int(np.sign(combined_signal)) if abs(combined_signal) > 0.1 else current_based_direction
-            else:
-                # 반대 방향이면 현재 값을 우선 사용 (현재 상태가 더 중요)
-                align_direction = current_based_direction
-            # 유효한 방향이 결정되면 저장하고 카운트 리셋
-            last_valid_align_direction = align_direction
-            direction_hold_count = 0
-        elif trend_based_direction != 0:
-            # 현재 값이 없을 때만 트렌드 사용
-            align_direction = trend_based_direction
-            # 유효한 방향이 결정되면 저장하고 카운트 리셋
-            last_valid_align_direction = align_direction
-            direction_hold_count = 0
+                align_direction = int(np.sign(combined_signal)) if abs(combined_signal) > 0.1 else trend_based_direction
         else:
-            # 둘 다 없으면 이전 방향을 유지 (압력 값이 clamp되었을 때 계속 회전)
-            if last_valid_align_direction != 0 and direction_hold_count < max_direction_hold:
-                # 이전에 유효한 방향이 있었고, 아직 유지 횟수를 넘지 않았으면 이전 방향 유지
-                align_direction = last_valid_align_direction
-                direction_hold_count += 1
-            else:
-                # 이전 방향이 없거나 유지 횟수를 넘었으면 회전 없음
-                align_direction = 0
-                direction_hold_count = 0
+            # 트렌드가 없거나 약하면 현재 값 기반으로 결정
+            align_direction = current_based_direction
         
         # 최종 차이값 계산 (디버그용)
         P_diff = abs(P_diff_current)
@@ -317,7 +305,7 @@ def main():
        
         # Debug print
         current_dw_deg = adaptHelp.dw * 180.0 / np.pi
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}, LastValid: {last_valid_align_direction}, HoldCount: {direction_hold_count}")
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}(raw:{P_E_raw:.2f}), P_W: {P_W:.2f}(raw:{P_W_raw:.2f}), P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}")
 
 
         if rospy.is_shutdown():
