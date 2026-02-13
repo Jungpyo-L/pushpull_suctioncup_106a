@@ -55,12 +55,12 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  # dw 기본값을 0.57로 설정 (라디안)
-  initial_dw_rad = 0.57  # 기본 d_w 값 (라디안)
-  adaptHelp = adaptMotionHelp(d_lat=0.0013, dw=initial_dw_rad, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  # dw 기본값을 0.57도로 설정 (adaptMotionHelp는 도 단위를 받음)
+  initial_dw_deg = 0.57  # 기본 d_w 값 (도 단위)
+  adaptHelp = adaptMotionHelp(d_lat=0.0013, dw=initial_dw_deg, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   
   # === d_w 동적 조정을 위한 변수 설정 ===
-  dw_change_rad = 0.03  # align 변경 시 d_w 변화량 (라디안)
+  dw_change_deg = 0.03  # align 변경 시 d_w 변화량 (도 단위)
   prev_align_direction = 0  # 이전 align_direction 값
   align_repeat_count = 0  # 방향 변경 후 같은 방향이 반복된 횟수
   align_repeat_threshold = 2  # 방향 변경 후 초기값으로 복귀하기 위한 반복 횟수
@@ -246,18 +246,19 @@ def main():
         if prev_align_direction != 0 and align_direction != 0:
             if prev_align_direction != align_direction:
                 # 방향이 변경됨 (CW -> CCW 또는 CCW -> CW)
-                # d_w를 0.57 + 0.03 = 0.60으로 설정
-                adaptHelp.dw = initial_dw_rad + dw_change_rad
+                # d_w를 증가 (도 단위로 계산 후 라디안으로 변환)
+                new_dw_deg = initial_dw_deg + dw_change_deg
+                adaptHelp.dw = new_dw_deg * np.pi / 180.0  # 도를 라디안으로 변환
                 align_repeat_count = 0  # 반복 카운트 리셋
-                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {adaptHelp.dw:.4f} rad ({adaptHelp.dw * 180.0 / np.pi:.4f} deg)")
+                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {new_dw_deg:.4f} deg ({adaptHelp.dw:.4f} rad)")
             elif prev_align_direction == align_direction and align_direction != 0:
                 # 같은 방향이 반복됨
                 align_repeat_count += 1
                 if align_repeat_count >= align_repeat_threshold:
-                    # 2번 반복되면 초기값(0.57)으로 복귀
-                    adaptHelp.dw = initial_dw_rad
+                    # 2번 반복되면 초기값으로 복귀
+                    adaptHelp.dw = initial_dw_deg * np.pi / 180.0  # 도를 라디안으로 변환
                     align_repeat_count = 0  # 카운트 리셋
-                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_rad:.4f} rad ({initial_dw_rad * 180.0 / np.pi:.4f} deg)")
+                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_deg:.4f} deg ({adaptHelp.dw:.4f} rad)")
         
         # 현재 align_direction을 이전 값으로 저장
         prev_align_direction = align_direction
@@ -304,6 +305,12 @@ def main():
         # Debug print
         current_dw_deg = adaptHelp.dw * 180.0 / np.pi
         print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, Δ: {delta:.2f}, dΔ/dt: {delta_first_derivative:.3f}, d²Δ/dt²: {delta_second_derivative:.3f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg")
+        
+        # === 안전 체크: 회전 각도가 너무 크면 제한 ===
+        max_dw_deg = 2.0  # 최대 회전 각도 (도)
+        if current_dw_deg > max_dw_deg:
+            adaptHelp.dw = max_dw_deg * np.pi / 180.0
+            print(f"WARNING: d_w exceeded maximum ({max_dw_deg} deg), limited to {max_dw_deg} deg")
 
         # === 0.5초마다 mat 파일 저장 ===
         current_time = time.time()
