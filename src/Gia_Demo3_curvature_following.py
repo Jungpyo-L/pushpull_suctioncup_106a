@@ -214,27 +214,26 @@ def main():
                 trend_based_direction = -1  # CW
         
         # === 현재 값과 트렌드를 적응적으로 결합하여 최종 방향 결정 ===
-        # 트렌드가 명확하면 트렌드를 우선, 그렇지 않으면 현재 값 사용
-        if trend_based_direction != 0:
-            # 트렌드가 있으면 트렌드와 현재 값을 가중 평균
-            # 트렌드가 강할수록 더 많이 반영
-            trend_strength = min(abs(P_E_trend), abs(P_W_trend)) if (abs(P_E_trend) > 0 and abs(P_W_trend) > 0) else max(abs(P_E_trend), abs(P_W_trend))
-            adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.8)  # 최대 0.8까지
-            
-            combined_signal = (1.0 - adaptive_weight) * current_based_direction + adaptive_weight * trend_based_direction
-            # combined_signal이 작을 때는 현재 값(current_based_direction)을 우선 사용
-            # 이렇게 하면 CW 방향에서도 회전이 제대로 작동함
-            if abs(combined_signal) > 0.1:
-                align_direction = int(np.sign(combined_signal))
-            elif current_based_direction != 0:
-                # combined_signal이 작지만 current_based_direction이 있으면 그것을 사용
-                align_direction = current_based_direction
+        # 현재 값이 명확하면 우선 사용 (CW/CCW 모두 제대로 작동하도록)
+        # 현재 값이 없을 때만 트렌드 사용
+        if current_based_direction != 0:
+            # 현재 값이 명확하면 현재 값을 우선 사용
+            # 트렌드와 같은 방향이면 트렌드도 고려하여 결합
+            if trend_based_direction == current_based_direction:
+                # 같은 방향이면 트렌드 강도에 따라 가중치 조정
+                trend_strength = min(abs(P_E_trend), abs(P_W_trend)) if (abs(P_E_trend) > 0 and abs(P_W_trend) > 0) else max(abs(P_E_trend), abs(P_W_trend))
+                adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.6)  # 최대 0.6까지 (현재 값에 더 가중치)
+                combined_signal = (1.0 - adaptive_weight) * current_based_direction + adaptive_weight * trend_based_direction
+                align_direction = int(np.sign(combined_signal)) if abs(combined_signal) > 0.1 else current_based_direction
             else:
-                # 둘 다 없으면 trend_based_direction 사용
-                align_direction = trend_based_direction
+                # 반대 방향이면 현재 값을 우선 사용 (현재 상태가 더 중요)
+                align_direction = current_based_direction
+        elif trend_based_direction != 0:
+            # 현재 값이 없을 때만 트렌드 사용
+            align_direction = trend_based_direction
         else:
-            # 트렌드가 없거나 약하면 현재 값 기반으로 결정
-            align_direction = current_based_direction
+            # 둘 다 없으면 회전 없음
+            align_direction = 0
         
         # 최종 차이값 계산 (디버그용)
         P_diff = abs(P_diff_current)
