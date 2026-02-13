@@ -222,7 +222,16 @@ def main():
             adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.8)  # 최대 0.8까지
             
             combined_signal = (1.0 - adaptive_weight) * current_based_direction + adaptive_weight * trend_based_direction
-            align_direction = int(np.sign(combined_signal)) if abs(combined_signal) > 0.1 else trend_based_direction
+            # combined_signal이 작을 때는 현재 값(current_based_direction)을 우선 사용
+            # 이렇게 하면 CW 방향에서도 회전이 제대로 작동함
+            if abs(combined_signal) > 0.1:
+                align_direction = int(np.sign(combined_signal))
+            elif current_based_direction != 0:
+                # combined_signal이 작지만 current_based_direction이 있으면 그것을 사용
+                align_direction = current_based_direction
+            else:
+                # 둘 다 없으면 trend_based_direction 사용
+                align_direction = trend_based_direction
         else:
             # 트렌드가 없거나 약하면 현재 값 기반으로 결정
             align_direction = current_based_direction

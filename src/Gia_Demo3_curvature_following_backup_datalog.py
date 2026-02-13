@@ -140,14 +140,6 @@ def main():
     align_tolerance = 2.0  # If |P_E - P_W| < 2, stop rotating
     z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
    
-    # === 동적 회전 각도 조정 파라미터 ===
-    min_dw_deg = 0.1  # 최소 회전 각도 (도)
-    max_dw_deg = 2.0  # 최대 회전 각도 (도)
-    # 2차 미분 정규화 파라미터 (경험적으로 조정 필요)
-    second_derivative_scale = 5.0  # 2차 미분을 각도로 변환하는 스케일
-    # 압력 차이 정규화 파라미터
-    delta_scale = 10.0  # 압력 차이를 각도에 반영하는 스케일
-   
     # === 2차 미분 기반 align을 위한 히스토리 설정 ===
     delta_history_size = 10  # Δ = P_E - P_W의 히스토리 크기
     delta_history = []  # Δ 값의 히스토리
@@ -232,14 +224,12 @@ def main():
                 first_deriv_new_avg = np.mean(recent_first_deriv[mid_point:])
                 delta_second_derivative = first_deriv_new_avg - first_deriv_old_avg
         
-        # Step 6: 2차 미분 기반으로 align 방향 결정 및 동적 각도 계산
+        # Step 6: 2차 미분 기반으로 align 방향 결정
         # 2차 미분 > 0: CCW (1)
         # 2차 미분 < 0: CW (-1)
         # 2차 미분 = 0 또는 tolerance 내: 회전 없음 (0)
         if abs(delta) < align_tolerance:
             align_direction = 0  # tolerance 내이면 회전 없음
-            # 회전이 없으면 최소 각도로 설정
-            adaptHelp.dw = min_dw_deg * np.pi / 180.0
         elif delta_second_derivative > 0:
             align_direction = 1  # CCW
         elif delta_second_derivative < 0:
@@ -250,37 +240,25 @@ def main():
                 align_direction = 1  # CCW
             else:
                 align_direction = -1  # CW
-        
-        # === 동적 회전 각도 계산: 2차 미분 크기와 압력 차이 기반 ===
-        if align_direction != 0:
-            # 2차 미분의 절댓값을 정규화 (0~1 범위로)
-            # 2차 미분의 절댓값이 클수록 더 큰 각도 필요
-            abs_second_deriv = abs(delta_second_derivative)
-            # 2차 미분을 정규화 (경험적 임계값 사용, 조정 필요)
-            normalized_second_deriv = np.clip(abs_second_deriv / second_derivative_scale, 0.0, 1.0)
-            
-            # 압력 차이(delta)의 절댓값도 정규화
-            # 압력 차이가 클수록 더 큰 각도 필요
-            abs_delta = abs(delta)
-            normalized_delta = np.clip(abs_delta / delta_scale, 0.0, 1.0)
-            
-            # 두 값을 결합 (가중 평균 또는 곱)
-            # 2차 미분이 더 중요하므로 더 큰 가중치
-            combined_urgency = 0.7 * normalized_second_deriv + 0.3 * normalized_delta
-            combined_urgency = np.clip(combined_urgency, 0.0, 1.0)
-            
-            # 최소~최대 각도 범위에서 동적으로 계산
-            dynamic_dw_deg = min_dw_deg + (max_dw_deg - min_dw_deg) * combined_urgency
-            
-            # 라디안으로 변환하여 적용
-            adaptHelp.dw = dynamic_dw_deg * np.pi / 180.0
-            
-            # 디버그용 (나중에 제거 가능)
-            if abs_second_deriv > 0.1 or abs_delta > 5.0:  # 의미있는 값일 때만 출력
-                print(f"Dynamic dw: 2nd_deriv={abs_second_deriv:.3f} (norm={normalized_second_deriv:.2f}), delta={abs_delta:.2f} (norm={normalized_delta:.2f}), urgency={combined_urgency:.2f}, dw={dynamic_dw_deg:.3f}deg")
-        else:
-            # 회전이 없으면 최소 각도로 설정
-            adaptHelp.dw = min_dw_deg * np.pi / 180.0
+       
+        # === d_w 동적 조정 로직 ===
+        # align_direction이 변경되었는지 확인 (CW <-> CCW 변경, 즉 -1 <-> 1)
+        if prev_align_direction != 0 and align_direction != 0:
+            if prev_align_direction != align_direction:
+                # 방향이 변경됨 (CW -> CCW 또는 CCW -> CW)
+                # d_w를 증가 (도 단위로 계산 후 라디안으로 변환)
+                new_dw_deg = initial_dw_deg + dw_change_deg
+                adaptHelp.dw = new_dw_deg * np.pi / 180.0  # 도를 라디안으로 변환
+                align_repeat_count = 0  # 반복 카운트 리셋
+                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {new_dw_deg:.4f} deg ({adaptHelp.dw:.4f} rad)")
+            elif prev_align_direction == align_direction and align_direction != 0:
+                # 같은 방향이 반복됨
+                align_repeat_count += 1
+                if align_repeat_count >= align_repeat_threshold:
+                    # 2번 반복되면 초기값으로 복귀
+                    adaptHelp.dw = initial_dw_deg * np.pi / 180.0  # 도를 라디안으로 변환
+                    align_repeat_count = 0  # 카운트 리셋
+                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_deg:.4f} deg ({adaptHelp.dw:.4f} rad)")
         
         # 현재 align_direction을 이전 값으로 저장
         prev_align_direction = align_direction
