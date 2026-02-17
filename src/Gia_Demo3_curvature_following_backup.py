@@ -53,7 +53,7 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.0015, dw=0.57, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  adaptHelp = adaptMotionHelp(d_lat=0.0010, dw=0.57, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
 # adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   
   # === d_w 동적 조정을 위한 변수 설정 ===
@@ -86,7 +86,7 @@ def main():
 
 
   # Set the pose A
-  positionA = [0.41506, 0.13596, 0.04537]  # Starting position
+  positionA = [0.51010, 0.-0.08520, 0.03163]  # Starting position
 #   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
@@ -124,7 +124,7 @@ def main():
 
 
     # target_pressure = 20.0  # Target pressure value
-    target_pressure = 17.0  # Target pressure value
+    target_pressure = 150.0  # Target pressure value
 
     # pressure_threshold = 10.0  # Values below this are set to 0
     pressure_threshold = 5.0  # Values below this are set to 0
