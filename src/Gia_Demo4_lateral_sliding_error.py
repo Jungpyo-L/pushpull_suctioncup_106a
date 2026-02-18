@@ -139,10 +139,56 @@ def main(args):
         pressure[pressure <= 10.0] = 0.0
         pressure_mean = float(np.mean(pressure))
 
-        # Check grasp condition: 평균 압력이 150 이상이면 PULL로 전환
+        # Check grasp condition: 평균 압력이 target_grasp_pressure 이상이면 그 자리에서 grasp 시퀀스 실행
         if pressure_mean >= target_grasp_pressure:
             print(f"Grasp condition reached, mean pressure (thresholded) = {pressure_mean:.2f}")
-            break
+
+            # === Deformation: servo-based move down by specified deformation before grasp ===
+            deformation_mm = getattr(args, "deformation", 3.0)
+            deformation_m = deformation_mm * 1e-3
+            step_z = adaptHelp.d_z_normal
+            n_steps_down = int(np.round(deformation_m / step_z)) if step_z > 0 else 0
+
+            print(f"Applying deformation with servoL: {deformation_mm} mm (downward in {n_steps_down} steps)")
+            for _ in range(max(n_steps_down, 0)):
+                T_down = adaptHelp.get_Tmat_TranlateInZ(direction=1)  # direction=1: move down (same as Demo3)
+                measuredCurrPose = rtde_help.getCurrentPose()
+                deltaPose_down = adaptHelp.get_PoseStamped_from_T_initPose(T_down, measuredCurrPose)
+                rtde_help.goToPoseAdaptive(deltaPose_down)
+                rospy.sleep(0.01)
+
+            # After reaching deformation depth, wait 2 seconds (still in PUSH state)
+            rospy.sleep(2.0)
+
+            # === Grasp: switch to PULL and hold suction for 2 seconds ===
+            print("Switching to PULL state for grasp...")
+            msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
+            PushPull_pub.publish(msg)
+            rospy.sleep(2.0)
+
+            # === Servo-based lift: move up by same deformation + extra 5cm ===
+            # First, move up by deformation distance
+            for _ in range(max(n_steps_down, 0)):
+                T_up = adaptHelp.get_Tmat_TranlateInZ(direction=-1)  # direction=-1: move up
+                measuredCurrPose = rtde_help.getCurrentPose()
+                deltaPose_up = adaptHelp.get_PoseStamped_from_T_initPose(T_up, measuredCurrPose)
+                rtde_help.goToPoseAdaptive(deltaPose_up)
+                rospy.sleep(0.01)
+
+            # Then add 5cm additional lift
+            extra_lift = 0.05  # 5cm
+            n_steps_extra = int(np.round(extra_lift / step_z)) if step_z > 0 else 0
+            for _ in range(max(n_steps_extra, 0)):
+                T_up_extra = adaptHelp.get_Tmat_TranlateInZ(direction=-1)
+                measuredCurrPose = rtde_help.getCurrentPose()
+                deltaPose_up_extra = adaptHelp.get_PoseStamped_from_T_initPose(T_up_extra, measuredCurrPose)
+                rtde_help.goToPoseAdaptive(deltaPose_up_extra)
+                rospy.sleep(0.01)
+
+            # Stop pressure sampling and finish
+            P_help.stopSampling()
+            print("============ Python UR_Interface demo complete!")
+            return
 
         # Channel unit vectors: -45, 45, 135, 225 deg
         n = 4
@@ -193,35 +239,8 @@ def main(args):
             P_help.stopSampling()
             return
 
-    # === Deformation: move down by specified deformation before grasp ===
-    currentPose = rtde_help.getCurrentPose()
-    deformPose = copy.deepcopy(currentPose)
-
-    # deformation argument in mm (similar to Gia_Demo1_searchable_area.py)
-    deformation_mm = getattr(args, "deformation", 3.0)
-    deformation_m = deformation_mm * 1e-3
-    deformPose.pose.position.z -= deformation_m
-    print(f"Applying deformation: {deformation_mm} mm (downward)")
-    rtde_help.goToPose(deformPose)
-    # After reaching deformation depth, wait 2 seconds (still in PUSH state)
-    rospy.sleep(2.0)
-
-    # === Grasp: switch to PULL and hold suction for 2 seconds, then move up ===
-    print("Switching to PULL state for grasp...")
-    msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
-    PushPull_pub.publish(msg)
-    # Hold suction at this pose for 2 seconds before lifting
-    rospy.sleep(2.0)
-
-    # Move up in world Z from current (deformed) pose (grasp lift)
-    liftPose = copy.deepcopy(deformPose)
-    lift_distance = 0.05  # 5cm upward
-    liftPose.pose.position.z += lift_distance
-    rtde_help.goToPose(liftPose)
-
-    # Keep suction on PULL, but stop pressure sampling for this demo
+    # If we exit the loop without grasp (e.g., shutdown), clean up
     P_help.stopSampling()
-
     print("============ Python UR_Interface demo complete!")
   except rospy.ROSInterruptException:
     return
