@@ -127,6 +127,8 @@ def main(args):
     # === Lateral sliding based only on pressure direction ===
     # step size is adaptHelp.d_lat (set from d_lat=0.0010 above)
     target_grasp_pressure = 20.0  # mean of 4 channels to trigger grasp (PULL)
+  stable_count_required = 5      # threshold를 연속으로 넘는 최소 횟수
+  stable_count = 0
 
     while 1:
         rospy.sleep(0.05)  # Small delay to allow pressure data to update
@@ -139,9 +141,16 @@ def main(args):
         pressure[pressure <= 10.0] = 0.0
         pressure_mean = float(np.mean(pressure))
 
-        # Check grasp condition: 평균 압력이 target_grasp_pressure 이상이면 그 자리에서 grasp 시퀀스 실행
+        # Check grasp condition:
+        #  - 평균 압력이 target_grasp_pressure 이상인 상태가
+        #  - stable_count_required 회 이상 연속으로 유지되면 grasp 시퀀스 실행
         if pressure_mean >= target_grasp_pressure:
-            print(f"Grasp condition reached, mean pressure (thresholded) = {pressure_mean:.2f}")
+            stable_count += 1
+        else:
+            stable_count = 0
+
+        if stable_count >= stable_count_required:
+            print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
 
             # === Deformation: servo-based move down by specified deformation before grasp ===
             deformation_mm = getattr(args, "deformation", 3.0)
