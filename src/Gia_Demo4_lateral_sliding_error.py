@@ -209,7 +209,8 @@ def main(args):
     print("Switching to PULL state for grasp...")
     msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
     PushPull_pub.publish(msg)
-    rospy.sleep(0.1)
+    # Stay at this pose for 3 seconds before lifting
+    rospy.sleep(3.0)
 
     # Move up in world Z from current (deformed) pose (grasp lift)
     liftPose = copy.deepcopy(deformPose)
