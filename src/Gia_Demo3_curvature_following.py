@@ -36,59 +36,6 @@ from helperFunction.adaptiveMotion import adaptMotionHelp
 from helperFunction.SuctionP_callback_helper import P_CallbackHelp
 
 
-# === PI Controller Class ===
-class PIController:
-    def __init__(self, Kp=1.0, Ki=0.1, integral_limit=None, output_limit=None):
-        """
-        PI Controller
-        Args:
-            Kp: Proportional gain
-            Ki: Integral gain
-            integral_limit: Maximum absolute value for integral term (anti-windup)
-            output_limit: Maximum absolute value for output
-        """
-        self.Kp = Kp
-        self.Ki = Ki
-        self.integral = 0.0
-        self.integral_limit = integral_limit
-        self.output_limit = output_limit
-        self.prev_error = 0.0
-    
-    def update(self, error, dt=0.05):
-        """
-        Update PI controller
-        Args:
-            error: Current error (setpoint - current_value)
-            dt: Time step (default: 0.05s, matching rospy.sleep(0.05))
-        Returns:
-            output: Control output
-        """
-        # Proportional term
-        P_term = self.Kp * error
-        
-        # Integral term
-        self.integral += error * dt
-        
-        # Anti-windup: limit integral term
-        if self.integral_limit is not None:
-            self.integral = np.clip(self.integral, -self.integral_limit, self.integral_limit)
-        
-        I_term = self.Ki * self.integral
-        
-        # Total output
-        output = P_term + I_term
-        
-        # Limit output
-        if self.output_limit is not None:
-            output = np.clip(output, -self.output_limit, self.output_limit)
-        
-        self.prev_error = error
-        return output
-    
-    def reset(self):
-        """Reset integral term"""
-        self.integral = 0.0
-        self.prev_error = 0.0
 
 
 def main():
@@ -106,7 +53,7 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.0015, dw=0.57, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
+  adaptHelp = adaptMotionHelp(d_lat=0.0010, dw=0.57, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
 # adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
   
   # === d_w 동적 조정을 위한 변수 설정 ===
@@ -139,7 +86,7 @@ def main():
 
 
   # Set the pose A
-  positionA = [0.41506, 0.13596, 0.04537]  # Starting position
+  positionA = [0.51010, 0.-0.08520, 0.03163]  # Starting position
 #   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
@@ -182,37 +129,14 @@ def main():
     # pressure_threshold = 10.0  # Values below this are set to 0
     pressure_threshold = 5.0  # Values below this are set to 0
 
-    # align_tolerance와 z_tolerance는 이제 PI 컨트롤러의 deadzone으로 대체됨
-    # align_tolerance = 2.0  # If |P_E - P_W| < 5, stop rotating (사용 안 함)
-    # z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z (사용 안 함)
+    align_tolerance = 2.0  # If |P_E - P_W| < 5, stop rotating
+    z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
    
-    # === PI Controller 설정 ===
-    # Z 방향 제어용 PI 컨트롤러
-    # 오차: target_pressure - pressure_mean
-    # 출력: z 방향 제어 신호 (양수면 아래로, 음수면 위로)
-    z_pi_controller = PIController(
-        Kp=0.1,  # Proportional gain (조정 필요)
-        Ki=0.01,  # Integral gain (조정 필요)
-        integral_limit=50.0,  # Anti-windup limit
-        output_limit=1.0  # 출력 제한 (-1 ~ 1)
-    )
-    
-    # 회전(Align) 제어용 PI 컨트롤러
-    # 오차: P_E - P_W (목표는 0, 즉 P_E = P_W)
-    # 출력: 회전 방향 제어 신호 (양수면 CCW, 음수면 CW)
-    align_pi_controller = PIController(
-        Kp=0.2,  # Proportional gain (조정 필요)
-        Ki=0.02,  # Integral gain (조정 필요)
-        integral_limit=20.0,  # Anti-windup limit
-        output_limit=1.0  # 출력 제한 (-1 ~ 1)
-    )
-   
-    # === 경향성 추적을 위한 히스토리 설정 (PI 컨트롤러 사용 시 선택적) ===
-    # PI 컨트롤러가 적분 항을 자체적으로 관리하므로 히스토리는 선택적으로 사용 가능
-    # history_size = 10  # 최근 N개의 값을 저장하여 경향성 계산
-    # P_E_history = []  # P_E 값의 히스토리
-    # P_W_history = []  # P_W 값의 히스토리
-    # trend_weight = 0.5  # 경향성 가중치 (0.0~1.0, 높을수록 경향성에 더 의존)
+    # === 경향성 추적을 위한 히스토리 설정 ===
+    history_size = 10  # 최근 N개의 값을 저장하여 경향성 계산
+    P_E_history = []  # P_E 값의 히스토리
+    P_W_history = []  # P_W 값의 히스토리
+    trend_weight = 0.5  # 경향성 가중치 (0.0~1.0, 높을수록 경향성에 더 의존)
    
     while 1:
         # Get pressure data
@@ -235,30 +159,73 @@ def main():
         # Calculate average pressure
         pressure_mean = np.mean(pressure_filtered)
        
-        # === 경향성 추적: 히스토리에 현재 값 추가 (PI 컨트롤러는 자체 적분 항을 사용하므로 선택적) ===
-        # PI 컨트롤러가 적분 항을 자체적으로 관리하므로 히스토리는 선택적으로 사용 가능
-        # P_E_history.append(P_E)
-        # P_W_history.append(P_W)
-        # 
-        # # 히스토리 크기 제한
-        # if len(P_E_history) > history_size:
-        #     P_E_history.pop(0)
-        #     P_W_history.pop(0)
+        # === 경향성 추적: 히스토리에 현재 값 추가 ===
+        P_E_history.append(P_E)
+        P_W_history.append(P_W)
         
-        # === PI Controller를 사용한 회전(Align) 제어 ===
-        # 오차: P_E - P_W (목표는 0, 즉 P_E = P_W가 되도록)
+        # 히스토리 크기 제한
+        if len(P_E_history) > history_size:
+            P_E_history.pop(0)
+            P_W_history.pop(0)
+        
+        # === 경향성 계산 (변화율) ===
+        P_E_trend = 0.0  # P_E의 변화율 (양수면 증가, 음수면 감소)
+        P_W_trend = 0.0  # P_W의 변화율 (양수면 증가, 음수면 감소)
+        trend_threshold = 0.5  # 트렌드가 의미있을 최소 변화량
+        
+        if len(P_E_history) >= 3:  # 최소 3개 이상의 데이터가 있어야 경향성 계산 가능
+            # 최근 값들의 평균 변화율 계산
+            recent_window = min(5, len(P_E_history))  # 최근 5개 또는 전체 사용
+            recent_P_E = P_E_history[-recent_window:]
+            recent_P_W = P_W_history[-recent_window:]
+            
+            # 최근 절반과 이전 절반의 평균 차이로 경향성 계산
+            if len(recent_P_E) >= 2:
+                mid_point = len(recent_P_E) // 2
+                P_E_old_avg = np.mean(recent_P_E[:mid_point])
+                P_E_new_avg = np.mean(recent_P_E[mid_point:])
+                P_E_trend = P_E_new_avg - P_E_old_avg
+                
+                P_W_old_avg = np.mean(recent_P_W[:mid_point])
+                P_W_new_avg = np.mean(recent_P_W[mid_point:])
+                P_W_trend = P_W_new_avg - P_W_old_avg
+        
+        # === 현재 값 기반 방향 결정 ===
         P_diff_current = P_E - P_W
-        align_error = P_diff_current  # 목표값 0과의 차이
+        current_based_direction = 0
+        if abs(P_diff_current) >= align_tolerance:
+            if P_diff_current > 0:
+                current_based_direction = 1  # CCW
+            else:
+                current_based_direction = -1  # CW
         
-        # PI 컨트롤러 업데이트 (dt = 0.05초, rospy.sleep(0.05)와 동일)
-        align_output = align_pi_controller.update(align_error, dt=0.05)
+        # === 트렌드 기반 방향 결정 (적응적) ===
+        # P_W가 감소하거나 P_E가 증가하면 → CCW (1)
+        # P_W가 증가하거나 P_E가 감소하면 → CW (-1)
+        trend_based_direction = 0
+        if abs(P_E_trend) >= trend_threshold or abs(P_W_trend) >= trend_threshold:
+            # P_E가 증가하는 경향이 있으면 CCW
+            # P_W가 감소하는 경향이 있으면 CCW
+            if P_E_trend > trend_threshold or P_W_trend < -trend_threshold:
+                trend_based_direction = 1  # CCW
+            # P_E가 감소하는 경향이 있으면 CW
+            # P_W가 증가하는 경향이 있으면 CW
+            elif P_E_trend < -trend_threshold or P_W_trend > trend_threshold:
+                trend_based_direction = -1  # CW
         
-        # PI 출력을 방향으로 변환 (dead zone 적용)
-        align_deadzone = 0.1  # 작은 출력은 무시
-        if abs(align_output) < align_deadzone:
-            align_direction = 0  # 회전 없음
+        # === 현재 값과 트렌드를 적응적으로 결합하여 최종 방향 결정 ===
+        # 트렌드가 명확하면 트렌드를 우선, 그렇지 않으면 현재 값 사용
+        if trend_based_direction != 0:
+            # 트렌드가 있으면 트렌드와 현재 값을 가중 평균
+            # 트렌드가 강할수록 더 많이 반영
+            trend_strength = min(abs(P_E_trend), abs(P_W_trend)) if (abs(P_E_trend) > 0 and abs(P_W_trend) > 0) else max(abs(P_E_trend), abs(P_W_trend))
+            adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.8)  # 최대 0.8까지
+            
+            combined_signal = (1.0 - adaptive_weight) * current_based_direction + adaptive_weight * trend_based_direction
+            align_direction = int(np.sign(combined_signal)) if abs(combined_signal) > 0.1 else trend_based_direction
         else:
-            align_direction = int(np.sign(align_output))  # 1: CCW, -1: CW
+            # 트렌드가 없거나 약하면 현재 값 기반으로 결정
+            align_direction = current_based_direction
         
         # 최종 차이값 계산 (디버그용)
         P_diff = abs(P_diff_current)
@@ -284,22 +251,17 @@ def main():
         # 현재 align_direction을 이전 값으로 저장
         prev_align_direction = align_direction
        
-        # === PI Controller를 사용한 Z 방향 제어 ===
-        # 오차: target_pressure - pressure_mean
-        # pressure_mean이 target_pressure보다 작으면 오차가 양수 → 아래로 이동 (direction=1)
-        # pressure_mean이 target_pressure보다 크면 오차가 음수 → 위로 이동 (direction=-1)
-        z_error = target_pressure - pressure_mean
-        
-        # PI 컨트롤러 업데이트 (dt = 0.05초, rospy.sleep(0.05)와 동일)
-        z_output = z_pi_controller.update(z_error, dt=0.05)
-        
-        # PI 출력을 방향으로 변환 (dead zone 적용)
-        z_deadzone = 0.1  # 작은 출력은 무시
-        pressure_diff = abs(z_error)  # 디버그용
-        if abs(z_output) < z_deadzone:
-            z_direction = 0  # z 유지
-        else:
-            z_direction = int(np.sign(z_output))  # 1: 아래로, -1: 위로
+        # Determine z direction based on average pressure
+        # pressure_mean < 20: move down (direction=1)
+        # pressure_mean > 20: move up (direction=-1)
+        # If |pressure_mean - target_pressure| < z_tolerance, maintain z
+        pressure_diff = abs(pressure_mean - target_pressure)
+        if pressure_diff < z_tolerance:
+            z_direction = 0  # maintain z (within tolerance)
+        elif pressure_mean < target_pressure:
+            z_direction = 1  # move down
+        else:  # pressure_mean > target_pressure
+            z_direction = -1  # move up
        
         # Lateral movement is fixed: always move right (-y direction, 0.005)
         T_later = adaptHelp.get_Tmat_TranlateInY(direction=-1)
@@ -330,7 +292,7 @@ def main():
        
         # Debug print
         current_dw_deg = adaptHelp.dw * 180.0 / np.pi
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction} (PI_out: {align_output:.3f}, err: {align_error:.2f}), Z: {z_direction} (PI_out: {z_output:.3f}, err: {z_error:.2f}), d_w: {current_dw_deg:.4f}deg")
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}")
 
 
         if rospy.is_shutdown():
