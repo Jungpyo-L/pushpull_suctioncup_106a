@@ -87,8 +87,10 @@ def main(args):
 
 
   # Set the pose A
-  positionA = [0.48383, -0.02173, 0.07631]  # Starting position
+#   positionA = [0.48383, -0.02173, 0.07531]  # Starting position
 #   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
+  positionA = [0.48143, -0.02173, 0.07531]  # yes
+
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
   orientationA = tf.transformations.quaternion_from_euler(np.pi, 0, -np.pi/2,'sxyz') #static (s) rotating (r)
@@ -126,9 +128,7 @@ def main(args):
 
     # === Lateral sliding based only on pressure direction ===
     # step size is adaptHelp.d_lat (set from d_lat=0.0010 above)
-    target_grasp_pressure = 20.0  # mean of 4 channels to trigger grasp (PULL)
-  stable_count_required = 5      # threshold를 연속으로 넘는 최소 횟수
-  stable_count = 0
+    target_grasp_pressure = 30.0  # mean of 4 channels to trigger grasp (PULL)
 
     while 1:
         rospy.sleep(0.05)  # Small delay to allow pressure data to update
@@ -141,16 +141,9 @@ def main(args):
         pressure[pressure <= 10.0] = 0.0
         pressure_mean = float(np.mean(pressure))
 
-        # Check grasp condition:
-        #  - 평균 압력이 target_grasp_pressure 이상인 상태가
-        #  - stable_count_required 회 이상 연속으로 유지되면 grasp 시퀀스 실행
+        # Check grasp condition: 평균 압력이 target_grasp_pressure 이상이면 그 자리에서 grasp 시퀀스 실행
         if pressure_mean >= target_grasp_pressure:
-            stable_count += 1
-        else:
-            stable_count = 0
-
-        if stable_count >= stable_count_required:
-            print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
+            print(f"Grasp condition reached, mean pressure (thresholded) = {pressure_mean:.2f}")
 
             # === Deformation: servo-based move down by specified deformation before grasp ===
             deformation_mm = getattr(args, "deformation", 3.0)
@@ -167,13 +160,13 @@ def main(args):
                 rospy.sleep(0.01)
 
             # After reaching deformation depth, wait 2 seconds (still in PUSH state)
-            rospy.sleep(2.0)
+            rospy.sleep(3.0)
 
             # === Grasp: switch to PULL and hold suction for 2 seconds ===
             print("Switching to PULL state for grasp...")
             msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
             PushPull_pub.publish(msg)
-            rospy.sleep(2.0)
+            rospy.sleep(3.0)
 
             # === Servo-based lift: move up by same deformation + extra 5cm ===
             # First, move up by deformation distance
@@ -185,7 +178,7 @@ def main(args):
                 rospy.sleep(0.01)
 
             # Then add 5cm additional lift
-            extra_lift = 0.05  # 5cm
+            extra_lift = 0.15  # 5cm
             n_steps_extra = int(np.round(extra_lift / step_z)) if step_z > 0 else 0
             for _ in range(max(n_steps_extra, 0)):
                 T_up_extra = adaptHelp.get_Tmat_TranlateInZ(direction=-1)
@@ -260,6 +253,6 @@ def main(args):
 if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
-  parser.add_argument('--deformation', type=float, default=3.0, help='Deformation (mm) to apply downward before grasp')
+  parser.add_argument('--deformation', type=float, default=10.0, help='Deformation (mm) to apply downward before grasp')
   cli_args = parser.parse_args()
   main(cli_args)
