@@ -203,14 +203,15 @@ def main(args):
     deformPose.pose.position.z -= deformation_m
     print(f"Applying deformation: {deformation_mm} mm (downward)")
     rtde_help.goToPose(deformPose)
-    rospy.sleep(0.1)
+    # After reaching deformation depth, wait 2 seconds (still in PUSH state)
+    rospy.sleep(2.0)
 
-    # === Grasp: switch to PULL and then move up from deformed position ===
+    # === Grasp: switch to PULL and hold suction for 2 seconds, then move up ===
     print("Switching to PULL state for grasp...")
     msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
     PushPull_pub.publish(msg)
-    # Stay at this pose for 3 seconds before lifting
-    rospy.sleep(3.0)
+    # Hold suction at this pose for 2 seconds before lifting
+    rospy.sleep(2.0)
 
     # Move up in world Z from current (deformed) pose (grasp lift)
     liftPose = copy.deepcopy(deformPose)
