@@ -38,7 +38,7 @@ from helperFunction.SuctionP_callback_helper import P_CallbackHelp
 
 
 
-def main():
+def main(args):
 
 
   deg2rad = np.pi / 180.0
@@ -133,17 +133,16 @@ def main():
 
         # Get raw pressure data (array-like, shape (4,))
         pressure_avg = np.array(P_help.four_pressure).ravel()
-        pressure_mean = float(np.mean(pressure_avg))
+
+        # Thresholding (<=10 -> 0) and mean based on thresholded values
+        pressure = pressure_avg.copy()
+        pressure[pressure <= 10.0] = 0.0
+        pressure_mean = float(np.mean(pressure))
 
         # Check grasp condition: 평균 압력이 150 이상이면 PULL로 전환
         if pressure_mean >= target_grasp_pressure:
-            print(f"Grasp condition reached, mean pressure = {pressure_mean:.2f}")
+            print(f"Grasp condition reached, mean pressure (thresholded) = {pressure_mean:.2f}")
             break
-
-        # Direction computation from pressure (4 channels arranged on a circle)
-        # Thresholding (<=10 -> 0)
-        pressure = pressure_avg.copy()
-        pressure[pressure <= 10.0] = 0.0
 
         # Channel unit vectors: -45, 45, 135, 225 deg
         n = 4
@@ -194,15 +193,26 @@ def main():
             P_help.stopSampling()
             return
 
-    # === Grasp: switch to PULL and move up from current position ===
+    # === Deformation: move down by specified deformation before grasp ===
+    currentPose = rtde_help.getCurrentPose()
+    deformPose = copy.deepcopy(currentPose)
+
+    # deformation argument in mm (similar to Gia_Demo1_searchable_area.py)
+    deformation_mm = getattr(args, "deformation", 3.0)
+    deformation_m = deformation_mm * 1e-3
+    deformPose.pose.position.z -= deformation_m
+    print(f"Applying deformation: {deformation_mm} mm (downward)")
+    rtde_help.goToPose(deformPose)
+    rospy.sleep(0.1)
+
+    # === Grasp: switch to PULL and then move up from deformed position ===
     print("Switching to PULL state for grasp...")
     msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
     PushPull_pub.publish(msg)
     rospy.sleep(0.1)
 
-    # Move up in world Z from current pose (grasp lift)
-    currentPose = rtde_help.getCurrentPose()
-    liftPose = copy.deepcopy(currentPose)
+    # Move up in world Z from current (deformed) pose (grasp lift)
+    liftPose = copy.deepcopy(deformPose)
     lift_distance = 0.05  # 5cm upward
     liftPose.pose.position.z += lift_distance
     rtde_help.goToPose(liftPose)
@@ -210,22 +220,16 @@ def main():
     # Keep suction on PULL, but stop pressure sampling for this demo
     P_help.stopSampling()
 
-
-   
-   
-   
-
-
     print("============ Python UR_Interface demo complete!")
   except rospy.ROSInterruptException:
     return
   except KeyboardInterrupt:
-    return  
-
-
+    return
 
 
 if __name__ == '__main__':
-  main()
-
-
+  import argparse
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--deformation', type=float, default=3.0, help='Deformation (mm) to apply downward before grasp')
+  cli_args = parser.parse_args()
+  main(cli_args)
