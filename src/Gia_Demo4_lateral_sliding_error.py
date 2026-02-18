@@ -87,7 +87,7 @@ def main(args):
 
 
   # Set the pose A
-  positionA = [0.51010, 0.-0.08520, 0.03163]  # Starting position
+  positionA = [0.48383, -0.02173, 0.07631]  # Starting position
 #   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
@@ -126,7 +126,7 @@ def main(args):
 
     # === Lateral sliding based only on pressure direction ===
     # step size is adaptHelp.d_lat (set from d_lat=0.0010 above)
-    target_grasp_pressure = 150.0  # mean of 4 channels to trigger grasp (PULL)
+    target_grasp_pressure = 20.0  # mean of 4 channels to trigger grasp (PULL)
 
     while 1:
         rospy.sleep(0.05)  # Small delay to allow pressure data to update
