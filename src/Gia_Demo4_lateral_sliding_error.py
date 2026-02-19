@@ -89,7 +89,9 @@ def main(args):
   # Set the pose A
 #   positionA = [0.48383, -0.02173, 0.07531]  # Starting position
 #   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
-  positionA = [0.48143, -0.02173, 0.07531]  # yes
+  # positionA = [0.48143, -0.02173, 0.07531]  # for toy
+  positionA = [0.48561, -0.12653, 0.07720]  # for toy
+
 
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
@@ -254,5 +256,7 @@ if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
   parser.add_argument('--deformation', type=float, default=10.0, help='Deformation (mm) to apply downward before grasp')
+  parser.add_argument('--material', type=str, default="toy", help='object to test')
+
   cli_args = parser.parse_args()
   main(cli_args)
