@@ -156,19 +156,22 @@ def main(args):
         if stable_count >= stable_count_required:
             print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
 
-            # === Deformation: servo-based move down by specified deformation before grasp ===
+            # === Deformation: read current position and move down by specified deformation using goToPose ===
+            # Read current position at threshold condition
+            currentPose = rtde_help.getCurrentPose()
+            deformPose = copy.deepcopy(currentPose)
+            
+            # Get deformation argument (mm) and convert to meters
             deformation_mm = getattr(args, "deformation", 3.0)
             deformation_m = deformation_mm * 1e-3
-            step_z = adaptHelp.d_z_normal
-            n_steps_down = int(np.round(deformation_m / step_z)) if step_z > 0 else 0
-
-            print(f"Applying deformation with servoL: {deformation_mm} mm (downward in {n_steps_down} steps)")
-            for _ in range(max(n_steps_down, 0)):
-                T_down = adaptHelp.get_Tmat_TranlateInZ(direction=1)  # direction=1: move down (same as Demo3)
-                measuredCurrPose = rtde_help.getCurrentPose()
-                deltaPose_down = adaptHelp.get_PoseStamped_from_T_initPose(T_down, measuredCurrPose)
-                rtde_help.goToPoseAdaptive(deltaPose_down)
-                rospy.sleep(0.01)
+            
+            # Move down by deformation amount in z direction
+            deformPose.pose.position.z -= deformation_m
+            print(f"Applying deformation: {deformation_mm} mm (downward) from Z={currentPose.pose.position.z:.6f}m to Z={deformPose.pose.position.z:.6f}m")
+            
+            # Use goToPose to move down in one motion
+            rtde_help.goToPose(deformPose)
+            rospy.sleep(0.5)  # Wait for motion to complete
 
             # After reaching deformation depth, wait 2 seconds (still in PUSH state)
             rospy.sleep(3.0)
@@ -179,25 +182,26 @@ def main(args):
             PushPull_pub.publish(msg)
             rospy.sleep(3.0)
 
-            # === Servo-based lift: move up by same deformation + extra 5cm ===
-            # First, move up by deformation distance
-            for _ in range(max(n_steps_down, 0)):
-                T_up = adaptHelp.get_Tmat_TranlateInZ(direction=-1)  # direction=-1: move up
-                measuredCurrPose = rtde_help.getCurrentPose()
-                deltaPose_up = adaptHelp.get_PoseStamped_from_T_initPose(T_up, measuredCurrPose)
-                rtde_help.goToPoseAdaptive(deltaPose_up)
-                rospy.sleep(0.01)
+            # === Lift: move up by same deformation + extra 15cm using goToPose ===
+            # Read current position (after deformation)
+            currentPose_after_deform = rtde_help.getCurrentPose()
+            liftPose = copy.deepcopy(currentPose_after_deform)
+            
+            # Move up by deformation distance + extra lift (15cm)
+            extra_lift = 0.15  # 15cm
+            liftPose.pose.position.z += (deformation_m + extra_lift)
+            print(f"Lifting: from Z={currentPose_after_deform.pose.position.z:.6f}m to Z={liftPose.pose.position.z:.6f}m (deformation + {extra_lift*1000:.0f}mm)")
+            
+            # Use goToPose to move up in one motion
+            rtde_help.goToPose(liftPose)
+            rospy.sleep(0.5)  # Wait for motion to complete
 
-            # Then add 5cm additional lift
-            extra_lift = 0.15  # 5cm
-            n_steps_extra = int(np.round(extra_lift / step_z)) if step_z > 0 else 0
-            for _ in range(max(n_steps_extra, 0)):
-                T_up_extra = adaptHelp.get_Tmat_TranlateInZ(direction=-1)
-                measuredCurrPose = rtde_help.getCurrentPose()
-                deltaPose_up_extra = adaptHelp.get_PoseStamped_from_T_initPose(T_up_extra, measuredCurrPose)
-                rtde_help.goToPoseAdaptive(deltaPose_up_extra)
-                rospy.sleep(0.01)
-
+            # Stop suction (OFF_STATE) before finishing
+            print("Stopping suction (OFF_STATE)...")
+            msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+            PushPull_pub.publish(msg)
+            rospy.sleep(0.1)
+            
             # Stop pressure sampling and finish
             P_help.stopSampling()
             print("============ Python UR_Interface demo complete!")
