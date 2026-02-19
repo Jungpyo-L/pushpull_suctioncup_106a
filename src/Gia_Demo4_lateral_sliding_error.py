@@ -90,7 +90,7 @@ def main(args):
 #   positionA = [0.48383, -0.02173, 0.07531]  # Starting position
 #   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
   # positionA = [0.48143, -0.02173, 0.07531]  # for toy
-  positionA = [0.48561, -0.12653, 0.07720]  # for toy
+  positionA = [0.53565, -0.12553, 0.01161]  # for paper
 
 
 
@@ -130,8 +130,8 @@ def main(args):
 
     # === Lateral sliding based only on pressure direction ===
     # step size is adaptHelp.d_lat (set from d_lat=0.0010 above)
-    target_grasp_pressure = 30.0  # mean of 4 channels to trigger grasp (PULL)
-    stable_count_required = 10  # threshold를 연속으로 넘는 최소 횟수
+    target_grasp_pressure = 50.0  # mean of 4 channels to trigger grasp (PULL)
+    stable_count_required = 20  # threshold를 연속으로 넘는 최소 횟수
     stable_count = 0
 
     while 1:
@@ -282,8 +282,8 @@ def main(args):
 if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
-  parser.add_argument('--deformation', type=float, default=10.0, help='Deformation (mm) to apply downward before grasp')
-  parser.add_argument('--material', type=str, default="toy", help='object to test')
+  parser.add_argument('--deformation', type=float, default=3, help='Deformation (mm) to apply downward before grasp')
+  parser.add_argument('--material', type=str, default="paper", help='object to test')
 
   cli_args = parser.parse_args()
   main(cli_args)
