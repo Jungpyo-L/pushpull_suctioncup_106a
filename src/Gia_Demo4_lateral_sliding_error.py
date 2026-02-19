@@ -158,7 +158,13 @@ def main(args):
 
             # === Deformation: read current position and move down by specified deformation using goToPose ===
             # Read current position at threshold condition
-            currentPose = rtde_help.getCurrentPose()
+            try:
+                currentPose = rtde_help.getCurrentPose()
+            except Exception as e:
+                print(f"Error reading current pose: {e}")
+                print("Trying to continue with last known position...")
+                currentPose = rtde_help.getCurrentPoseTF()  # Fallback to TF-based pose
+            
             deformPose = copy.deepcopy(currentPose)
             
             # Get deformation argument (mm) and convert to meters
@@ -170,8 +176,14 @@ def main(args):
             print(f"Applying deformation: {deformation_mm} mm (downward) from Z={currentPose.pose.position.z:.6f}m to Z={deformPose.pose.position.z:.6f}m")
             
             # Use goToPose to move down in one motion
-            rtde_help.goToPose(deformPose)
-            rospy.sleep(0.5)  # Wait for motion to complete
+            try:
+                rtde_help.goToPose(deformPose, speed=0.05, acc=0.05)  # Slower speed for safety
+                rospy.sleep(1.0)  # Wait for motion to complete
+            except Exception as e:
+                print(f"Error during goToPose (deformation): {e}")
+                print("RTDE control script may not be running. Please check robot status.")
+                # Try to continue anyway
+                rospy.sleep(1.0)
 
             # After reaching deformation depth, wait 2 seconds (still in PUSH state)
             rospy.sleep(3.0)
@@ -184,7 +196,13 @@ def main(args):
 
             # === Lift: move up by same deformation + extra 15cm using goToPose ===
             # Read current position (after deformation)
-            currentPose_after_deform = rtde_help.getCurrentPose()
+            try:
+                currentPose_after_deform = rtde_help.getCurrentPose()
+            except Exception as e:
+                print(f"Error reading current pose after deformation: {e}")
+                print("Trying to continue with last known position...")
+                currentPose_after_deform = rtde_help.getCurrentPoseTF()  # Fallback to TF-based pose
+            
             liftPose = copy.deepcopy(currentPose_after_deform)
             
             # Move up by deformation distance + extra lift (15cm)
@@ -193,8 +211,14 @@ def main(args):
             print(f"Lifting: from Z={currentPose_after_deform.pose.position.z:.6f}m to Z={liftPose.pose.position.z:.6f}m (deformation + {extra_lift*1000:.0f}mm)")
             
             # Use goToPose to move up in one motion
-            rtde_help.goToPose(liftPose)
-            rospy.sleep(0.5)  # Wait for motion to complete
+            try:
+                rtde_help.goToPose(liftPose, speed=0.05, acc=0.05)  # Slower speed for safety
+                rospy.sleep(1.0)  # Wait for motion to complete
+            except Exception as e:
+                print(f"Error during goToPose (lift): {e}")
+                print("RTDE control script may not be running. Please check robot status.")
+                # Try to continue anyway
+                rospy.sleep(1.0)
 
             # Stop suction (OFF_STATE) before finishing
             print("Stopping suction (OFF_STATE)...")
