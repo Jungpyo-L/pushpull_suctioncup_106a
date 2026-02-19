@@ -34,6 +34,7 @@ from pushpull_suctioncup_106a.msg import PushPull
 from helperFunction.rtde_helper import rtdeHelp
 from helperFunction.adaptiveMotion import adaptMotionHelp
 from helperFunction.SuctionP_callback_helper import P_CallbackHelp
+from helperFunction.fileSaveHelper import fileSaveHelp
 
 
 
@@ -67,6 +68,9 @@ def main(args):
 
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
+  
+  # === File saving helper ===
+  file_help = fileSaveHelp()
  
   # === PushPull 토픽/메세지 ===
   DUTYCYCLE_100 = 100
@@ -92,11 +96,13 @@ def main(args):
   # positionA = [0.48143, -0.02173, 0.07531]  # for toy
   positionA = [0.53565, -0.12553, 0.01161]  # for paper
 
-
+  # Calculate positionA_true by adding xoffset (mm) to y coordinate (second element) in meters
+  xoffset_m = getattr(args, "xoffset", 0) * 1e-3  # Convert mm to meters
+  positionA_true = [positionA[0], positionA[1] + xoffset_m, positionA[2]]
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
   orientationA = tf.transformations.quaternion_from_euler(np.pi, 0, -np.pi/2,'sxyz') #static (s) rotating (r)
-  poseA = rtde_help.getPoseObj(positionA, orientationA)
+  poseA = rtde_help.getPoseObj(positionA_true, orientationA)
 
 
 
@@ -105,10 +111,28 @@ def main(args):
   try:
 
 
-    input("Press <Enter> to go to pose A")
+    input("Press <Enter> to go to pose A (positionA_true)")
     rtde_help.goToPose(poseA)
     rospy.sleep(1)
     print("poseA: ", rtde_help.getCurrentPose())
+    
+    # === Initialize data collection lists ===
+    # Store data for each iteration (including initial position)
+    data_positions = []  # List of [x, y, z] positions
+    data_v_vectors = []  # List of v vectors [vx, vy]
+    data_pressure_avg = []  # List of pressure averages
+    data_pressure_raw = []  # List of raw pressure arrays
+    data_iteration = []  # Iteration number
+    
+    # Save initial position (positionA)
+    currentPose_init = rtde_help.getCurrentPose()
+    data_positions.append([currentPose_init.pose.position.x, 
+                          currentPose_init.pose.position.y, 
+                          currentPose_init.pose.position.z])
+    data_v_vectors.append([0.0, 0.0])  # No v vector at initial position
+    data_pressure_avg.append(0.0)  # No pressure data yet
+    data_pressure_raw.append([0.0, 0.0, 0.0, 0.0])  # No pressure data yet
+    data_iteration.append(0)  # Initial iteration
 
 
     # Start pressure sampling
@@ -133,8 +157,62 @@ def main(args):
     target_grasp_pressure = 50.0  # mean of 4 channels to trigger grasp (PULL)
     stable_count_required = 20  # threshold를 연속으로 넘는 최소 횟수
     stable_count = 0
+    grasp_flag = False  # Flag to track if grasp condition is met
+    start_time = time.time()  # Record start time for timeout check
+    timeout_duration = 10.0  # 10 seconds timeout
 
     while 1:
+        # Check timeout: if 10 seconds have passed without reaching grasp condition
+        elapsed_time = time.time() - start_time
+        if elapsed_time >= timeout_duration and not grasp_flag:
+            print(f"Timeout reached ({timeout_duration}s) without reaching grasp condition. Resetting...")
+            grasp_flag = False
+            
+            # Save collected data before timeout
+            currentPose_timeout = rtde_help.getCurrentPose()
+            iteration_num = len(data_iteration)
+            data_positions.append([currentPose_timeout.pose.position.x,
+                                  currentPose_timeout.pose.position.y,
+                                  currentPose_timeout.pose.position.z])
+            # Use last calculated v or [0,0] if not available
+            if len(data_v_vectors) > 0:
+                last_v = data_v_vectors[-1]
+            else:
+                last_v = [0.0, 0.0]
+            data_v_vectors.append(last_v)
+            data_pressure_avg.append(pressure_mean)
+            data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
+            data_iteration.append(iteration_num)
+            
+            # Save all collected data to mat file
+            print("Saving collected data to mat file (timeout)...")
+            args.data_positions = np.array(data_positions)
+            args.data_v_vectors = np.array(data_v_vectors)
+            args.data_pressure_avg = np.array(data_pressure_avg)
+            args.data_pressure_raw = np.array(data_pressure_raw)
+            args.data_iteration = np.array(data_iteration)
+            args.positionA = positionA
+            args.positionA_true = positionA_true
+            args.positionGrasp = None  # No grasp position due to timeout
+            
+            xoffset_val = getattr(args, "xoffset", 0)
+            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+            file_help.clearTmpFolder()
+            
+            # Set PUSH_STATE to OFF_STATE (0)
+            msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+            PushPull_pub.publish(msg)
+            rospy.sleep(0.1)
+            # Return to initial position (positionA)
+            print("Returning to initial position (positionA)...")
+            rtde_help.goToPose(poseA)
+            rospy.sleep(1)
+            print("Returned to positionA")
+            # Stop pressure sampling and exit
+            P_help.stopSampling()
+            print("============ Python UR_Interface demo complete!")
+            return
+
         rospy.sleep(0.05)  # Small delay to allow pressure data to update
 
         # Get raw pressure data (array-like, shape (4,))
@@ -154,7 +232,79 @@ def main(args):
             stable_count = 0
 
         if stable_count >= stable_count_required:
+            grasp_flag = True  # Set grasp_flag to True when condition is met
+            
+            # Turn off push (PUSH_STATE to OFF_STATE)
+            print("Turning off push...")
+            msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+            PushPull_pub.publish(msg)
+            rospy.sleep(0.1)
+            # Save current end effector position (like positionA)
+            
+            currentPose_at_grasp = rtde_help.getCurrentPose()
+            positionGrasp = [currentPose_at_grasp.pose.position.x, 
+                             currentPose_at_grasp.pose.position.y, 
+                             currentPose_at_grasp.pose.position.z]
+            
+            # Add current position at grasp to data collection
+            iteration_num = len(data_iteration)
+            data_positions.append([currentPose_at_grasp.pose.position.x,
+                                  currentPose_at_grasp.pose.position.y,
+                                  currentPose_at_grasp.pose.position.z])
+            # Use last calculated v or [0,0] if not available
+            if len(data_v_vectors) > 0:
+                last_v = data_v_vectors[-1]
+            else:
+                last_v = [0.0, 0.0]
+            data_v_vectors.append(last_v)
+            data_pressure_avg.append(pressure_mean)
+            data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
+            data_iteration.append(iteration_num)
+            
+            # Save all collected data to mat file with positionGrasp
+            print("Saving collected data to mat file...")
+            args.data_positions = np.array(data_positions)
+            args.data_v_vectors = np.array(data_v_vectors)
+            args.data_pressure_avg = np.array(data_pressure_avg)
+            args.data_pressure_raw = np.array(data_pressure_raw)
+            args.data_iteration = np.array(data_iteration)
+            args.positionA = positionA
+            args.positionA_true = positionA_true
+            args.positionGrasp = positionGrasp
+            
+            xoffset_val = getattr(args, "xoffset", 0)
+            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+            file_help.clearTmpFolder()
             print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
+            input("Press <Enter> to go to offset position...")
+
+            # === Move to position offset from positionA (x+15cm, y+15cm) ===
+            offset_distance = 0.15  # 15cm in meters
+            positionOffset = [positionA[0] + offset_distance, 
+                             positionA[1] + offset_distance, 
+                             positionA[2]]
+            poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
+            print(f"Moving to offset position from positionA: {positionOffset}")
+            rtde_help.goToPose(poseOffset)
+            rospy.sleep(1)
+            
+            # Wait for user to press Enter at offset position
+            input("Press <Enter> to return to positionGrasp...")
+            
+            # === Return to positionGrasp ===
+            # Get orientation from currentPose_at_grasp
+            orientationGrasp = [currentPose_at_grasp.pose.orientation.x,
+                               currentPose_at_grasp.pose.orientation.y,
+                               currentPose_at_grasp.pose.orientation.z,
+                               currentPose_at_grasp.pose.orientation.w]
+            poseGrasp = rtde_help.getPoseObj(positionGrasp, orientationGrasp)
+            print(f"Returning to positionGrasp: {positionGrasp}")
+            rtde_help.goToPose(poseGrasp)
+            rospy.sleep(1)
+            
+            # Wait 1 second at positionGrasp
+            print("Waiting 1 second at positionGrasp...")
+            rospy.sleep(1.0)
 
             # === Deformation: use servoL to move down by specified deformation ===
             # Read current position at threshold condition
@@ -193,7 +343,7 @@ def main(args):
             currentPose_after_deform = rtde_help.getCurrentPose()
             
             # Move up by deformation distance + extra lift (15cm)
-            extra_lift = 0.15  # 15cm
+            extra_lift = 0.20  # 20cm
             total_lift = deformation_m + extra_lift
             n_steps_up = int(np.round(total_lift / step_z)) if step_z > 0 else 0
             
@@ -259,11 +409,40 @@ def main(args):
         measuredCurrPose = rtde_help.getCurrentPose()
         deltaPose = adaptHelp.get_PoseStamped_from_T_initPose(T_later, measuredCurrPose)
         rtde_help.goToPoseAdaptive(deltaPose)
+        
+        # Get current position after movement
+        currentPose_after_move = rtde_help.getCurrentPose()
+        
+        # Collect data for this iteration
+        iteration_num = len(data_iteration)  # Current iteration number
+        data_positions.append([currentPose_after_move.pose.position.x,
+                              currentPose_after_move.pose.position.y,
+                              currentPose_after_move.pose.position.z])
+        data_v_vectors.append([v[0], v[1]])  # Store normalized v vector
+        data_pressure_avg.append(pressure_mean)
+        data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
+        data_iteration.append(iteration_num)
 
         # Debug print
         print(f"Pressure raw: {pressure_avg}, mean: {pressure_mean:.2f}, v: {v}, step: ({dx:.6f}, {dy:.6f})")
 
         if rospy.is_shutdown():
+            # Save collected data before shutdown
+            if len(data_positions) > 0:
+                print("Saving collected data to mat file (shutdown)...")
+                args.data_positions = np.array(data_positions)
+                args.data_v_vectors = np.array(data_v_vectors)
+                args.data_pressure_avg = np.array(data_pressure_avg)
+                args.data_pressure_raw = np.array(data_pressure_raw)
+                args.data_iteration = np.array(data_iteration)
+                args.positionA = positionA
+                args.positionA_true = positionA_true
+                args.positionGrasp = None
+                
+                xoffset_val = getattr(args, "xoffset", 0)
+                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+                file_help.clearTmpFolder()
+            
             # Stop push before returning
             msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
             PushPull_pub.publish(msg)
@@ -271,6 +450,22 @@ def main(args):
             return
 
     # If we exit the loop without grasp (e.g., shutdown), clean up
+    # Save collected data before exit
+    if len(data_positions) > 0:
+        print("Saving collected data to mat file (loop exit)...")
+        args.data_positions = np.array(data_positions)
+        args.data_v_vectors = np.array(data_v_vectors)
+        args.data_pressure_avg = np.array(data_pressure_avg)
+        args.data_pressure_raw = np.array(data_pressure_raw)
+        args.data_iteration = np.array(data_iteration)
+        args.positionA = positionA
+        args.positionA_true = positionA_true
+        args.positionGrasp = None
+        
+        xoffset_val = getattr(args, "xoffset", 0)
+        file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+        file_help.clearTmpFolder()
+    
     P_help.stopSampling()
     print("============ Python UR_Interface demo complete!")
   except rospy.ROSInterruptException:
@@ -284,6 +479,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--deformation', type=float, default=3, help='Deformation (mm) to apply downward before grasp')
   parser.add_argument('--material', type=str, default="paper", help='object to test')
+  parser.add_argument('--xoffset', type=float, default=0, help='X offset (mm) to add to positionA y coordinate')
 
   cli_args = parser.parse_args()
   main(cli_args)
