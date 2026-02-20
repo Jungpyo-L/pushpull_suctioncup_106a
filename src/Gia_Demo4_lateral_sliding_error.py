@@ -184,8 +184,28 @@ def main(args):
             print(f"Timeout reached ({timeout_duration}s) without reaching grasp condition. Resetting...")
             grasp_flag = False
             
-            # Save collected data before timeout
+            # === Stop servoL mode before switching to moveL ===
+            print("Stopping servoL mode...")
+            rtde_help.stopAtCurrPoseAdaptive()
+            rospy.sleep(0.5)  # Wait for servoL to fully stop
+            
+            # Get current pose and switch to moveL mode
             currentPose_timeout = rtde_help.getCurrentPose()
+            currentPosition_timeout = [currentPose_timeout.pose.position.x,
+                                      currentPose_timeout.pose.position.y,
+                                      currentPose_timeout.pose.position.z]
+            currentOrientation_timeout = [currentPose_timeout.pose.orientation.x,
+                                          currentPose_timeout.pose.orientation.y,
+                                          currentPose_timeout.pose.orientation.z,
+                                          currentPose_timeout.pose.orientation.w]
+            poseCurrent_timeout = rtde_help.getPoseObj(currentPosition_timeout, currentOrientation_timeout)
+            
+            # Move to current position using moveL to activate control script in moveL mode
+            print("Switching to moveL mode...")
+            rtde_help.goToPose(poseCurrent_timeout, speed=0.1, acc=0.1)
+            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
+            
+            # Save collected data before timeout
             iteration_num = len(data_iteration)
             current_timestamp = rospy.Time.now().to_sec() - timestamp_start_time
             data_positions.append([currentPose_timeout.pose.position.x,
@@ -215,21 +235,24 @@ def main(args):
             args.data_timestamps = np.array(data_timestamps)
             args.positionA = positionA
             args.positionA_true = positionA_true
-            args.positionGrasp = None  # No grasp position due to timeout
+            args.positionGrasp = np.array([])  # Empty array instead of None for failed case
             
             xoffset_val = getattr(args, "xoffset", 0)
             file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
             file_help.clearTmpFolder()
             
             # Set PUSH_STATE to OFF_STATE (0)
+            print("Turning off push...")
             msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
             PushPull_pub.publish(msg)
             rospy.sleep(0.1)
+            
             # Return to initial position (positionA)
             print("Returning to initial position (positionA)...")
-            rtde_help.goToPose(poseA)
+            rtde_help.goToPose(poseA, speed=0.1, acc=0.1)
             rospy.sleep(1)
             print("Returned to positionA")
+            
             # Stop pressure sampling and exit
             P_help.stopSampling()
             print("============ Python UR_Interface demo complete!")
@@ -527,7 +550,7 @@ def main(args):
                 args.data_timestamps = np.array(data_timestamps)
                 args.positionA = positionA
                 args.positionA_true = positionA_true
-                args.positionGrasp = None
+                args.positionGrasp = np.array([])  # Empty array instead of None for failed case
                 
                 xoffset_val = getattr(args, "xoffset", 0)
                 file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
@@ -554,7 +577,7 @@ def main(args):
         args.data_timestamps = np.array(data_timestamps)
         args.positionA = positionA
         args.positionA_true = positionA_true
-        args.positionGrasp = None
+        args.positionGrasp = np.array([])  # Empty array instead of None for failed case
         
         xoffset_val = getattr(args, "xoffset", 0)
         file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
