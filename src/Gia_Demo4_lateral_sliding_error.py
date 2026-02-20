@@ -256,16 +256,11 @@ def main(args):
         if stable_count >= stable_count_required:
             grasp_flag = True  # Set grasp_flag to True when condition is met
             
-            # === Stop servoL mode immediately when grasp condition is met ===
-            print("Stopping servoL mode...")
-            rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait longer for servoL to fully stop
-            
             # Turn off push (PUSH_STATE to OFF_STATE)
             print("Turning off push...")
             msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
             PushPull_pub.publish(msg)
-            rospy.sleep(0.2)
+            rospy.sleep(0.1)
             # Save current end effector position (like positionA)
             
             currentPose_at_grasp = rtde_help.getCurrentPose()
@@ -324,16 +319,11 @@ def main(args):
             # Wait for user to press Enter at offset position
             input("Press <Enter> to return to positionGrasp...")
             
-            # === Ensure servoL is stopped and use moveL ===
-            # Double check servoL is stopped
+            # === Stop servoL mode before using moveL for long distance movement ===
             rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait longer to ensure servoL is fully stopped
-            
-            # Also use stopAtCurrPose to ensure we're in moveL mode
-            rtde_help.stopAtCurrPose(asynchronous=False)
             rospy.sleep(0.3)
             
-            # === Return to positionGrasp ===
+            # === Return to positionGrasp using moveL ===
             # Get orientation from currentPose_at_grasp
             orientationGrasp = [currentPose_at_grasp.pose.orientation.x,
                                currentPose_at_grasp.pose.orientation.y,
@@ -342,35 +332,31 @@ def main(args):
             poseGrasp = rtde_help.getPoseObj(positionGrasp, orientationGrasp)
             print(f"Returning to positionGrasp: {positionGrasp}")
             rtde_help.goToPose(poseGrasp, speed=0.1, acc=0.1)
-            rospy.sleep(1.5)  # Wait longer for moveL to complete
+            rospy.sleep(1.0)
             
             # Wait 1 second at positionGrasp
             print("Waiting 1 second at positionGrasp...")
             rospy.sleep(1.0)
 
-            # === Deformation: use moveL to move down by specified deformation ===
+            # === Deformation: use servoL to move down by specified deformation (like backup) ===
             # Read current position at threshold condition
             currentPose = rtde_help.getCurrentPose()
             
             # Get deformation argument (mm) and convert to meters
             deformation_mm = getattr(args, "deformation", 3.0)
             deformation_m = deformation_mm * 1e-3
+            step_z = adaptHelp.d_z_normal
+            n_steps_down = int(np.round(deformation_m / step_z)) if step_z > 0 else 0
             
-            # Calculate target position (move down by deformation)
-            target_position_deform = [currentPose.pose.position.x,
-                                     currentPose.pose.position.y,
-                                     currentPose.pose.position.z - deformation_m]
-            target_orientation_deform = [currentPose.pose.orientation.x,
-                                        currentPose.pose.orientation.y,
-                                        currentPose.pose.orientation.z,
-                                        currentPose.pose.orientation.w]
-            poseDeform = rtde_help.getPoseObj(target_position_deform, target_orientation_deform)
+            print(f"Applying deformation: {deformation_mm} mm (downward in {n_steps_down} steps) from Z={currentPose.pose.position.z:.6f}m")
             
-            print(f"Applying deformation: {deformation_mm} mm (downward) from Z={currentPose.pose.position.z:.6f}m")
-            
-            # Use moveL to move down (single smooth motion instead of steps)
-            rtde_help.goToPose(poseDeform, speed=0.05, acc=0.05)
-            rospy.sleep(1.0)  # Wait longer for motion to complete
+            # Use servoL to move down (consistent with lateral sliding, like backup)
+            for step_idx in range(max(n_steps_down, 0)):
+                T_down = adaptHelp.get_Tmat_TranlateInZ(direction=1)  # direction=1: move down
+                measuredCurrPose = rtde_help.getCurrentPose()
+                deltaPose_down = adaptHelp.get_PoseStamped_from_T_initPose(T_down, measuredCurrPose)
+                rtde_help.goToPoseAdaptive(deltaPose_down)
+                rospy.sleep(0.05)  # Small delay between steps
             
             final_z = rtde_help.getCurrentPose().pose.position.z
             print(f"Final Z after deformation: {final_z:.6f}m")
@@ -384,29 +370,24 @@ def main(args):
             PushPull_pub.publish(msg)
             rospy.sleep(3.0)
 
-            # === Lift: use moveL to move up by same deformation + extra 20cm ===
+            # === Lift: use servoL to move up by same deformation + extra 20cm (like backup) ===
             # Read current position (after deformation)
             currentPose_after_deform = rtde_help.getCurrentPose()
             
             # Move up by deformation distance + extra lift (20cm)
             extra_lift = 0.20  # 20cm
             total_lift = deformation_m + extra_lift
+            n_steps_up = int(np.round(total_lift / step_z)) if step_z > 0 else 0
             
-            # Calculate target position (move up by total_lift)
-            target_position_lift = [currentPose_after_deform.pose.position.x,
-                                   currentPose_after_deform.pose.position.y,
-                                   currentPose_after_deform.pose.position.z + total_lift]
-            target_orientation_lift = [currentPose_after_deform.pose.orientation.x,
-                                      currentPose_after_deform.pose.orientation.y,
-                                      currentPose_after_deform.pose.orientation.z,
-                                      currentPose_after_deform.pose.orientation.w]
-            poseLift = rtde_help.getPoseObj(target_position_lift, target_orientation_lift)
+            print(f"Lifting: {total_lift*1000:.1f}mm (upward in {n_steps_up} steps) from Z={currentPose_after_deform.pose.position.z:.6f}m")
             
-            print(f"Lifting: {total_lift*1000:.1f}mm (upward) from Z={currentPose_after_deform.pose.position.z:.6f}m")
-            
-            # Use moveL to move up (single smooth motion instead of steps)
-            rtde_help.goToPose(poseLift, speed=0.1, acc=0.1)
-            rospy.sleep(1.5)  # Wait longer for motion to complete
+            # Use servoL to move up (consistent with deformation, like backup)
+            for step_idx in range(max(n_steps_up, 0)):
+                T_up = adaptHelp.get_Tmat_TranlateInZ(direction=-1)  # direction=-1: move up
+                measuredCurrPose = rtde_help.getCurrentPose()
+                deltaPose_up = adaptHelp.get_PoseStamped_from_T_initPose(T_up, measuredCurrPose)
+                rtde_help.goToPoseAdaptive(deltaPose_up)
+                rospy.sleep(0.05)  # Small delay between steps
             
             final_z_lift = rtde_help.getCurrentPose().pose.position.z
             print(f"Final Z after lift: {final_z_lift:.6f}m")
