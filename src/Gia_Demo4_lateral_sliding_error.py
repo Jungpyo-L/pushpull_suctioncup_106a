@@ -131,6 +131,10 @@ def main(args):
     data_pressure_avg = []  # List of pressure averages
     data_pressure_raw = []  # List of raw pressure arrays
     data_iteration = []  # Iteration number
+    data_timestamps = []  # List of timestamps (seconds since start)
+    
+    # Record start time for relative timestamps
+    timestamp_start_time = rospy.Time.now().to_sec()
     
     # Save initial position (positionA)
     currentPose_init = rtde_help.getCurrentPose()
@@ -141,6 +145,7 @@ def main(args):
     data_pressure_avg.append(0.0)  # No pressure data yet
     data_pressure_raw.append([0.0, 0.0, 0.0, 0.0])  # No pressure data yet
     data_iteration.append(0)  # Initial iteration
+    data_timestamps.append(0.0)  # Start time (relative timestamp = 0)
 
 
     # Start pressure sampling
@@ -182,6 +187,7 @@ def main(args):
             # Save collected data before timeout
             currentPose_timeout = rtde_help.getCurrentPose()
             iteration_num = len(data_iteration)
+            current_timestamp = rospy.Time.now().to_sec() - timestamp_start_time
             data_positions.append([currentPose_timeout.pose.position.x,
                                   currentPose_timeout.pose.position.y,
                                   currentPose_timeout.pose.position.z])
@@ -194,6 +200,7 @@ def main(args):
             data_pressure_avg.append(pressure_mean)
             data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
             data_iteration.append(iteration_num)
+            data_timestamps.append(current_timestamp)
             
             # Save all collected data to mat file
             print("Saving collected data to mat file (timeout)...")
@@ -205,6 +212,7 @@ def main(args):
             args.data_pressure_avg = np.array(data_pressure_avg)
             args.data_pressure_raw = np.array(data_pressure_raw)
             args.data_iteration = np.array(data_iteration)
+            args.data_timestamps = np.array(data_timestamps)
             args.positionA = positionA
             args.positionA_true = positionA_true
             args.positionGrasp = None  # No grasp position due to timeout
@@ -262,6 +270,7 @@ def main(args):
             
             # Add current position at grasp to data collection
             iteration_num = len(data_iteration)
+            current_timestamp = rospy.Time.now().to_sec() - timestamp_start_time
             data_positions.append([currentPose_at_grasp.pose.position.x,
                                   currentPose_at_grasp.pose.position.y,
                                   currentPose_at_grasp.pose.position.z])
@@ -274,6 +283,7 @@ def main(args):
             data_pressure_avg.append(pressure_mean)
             data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
             data_iteration.append(iteration_num)
+            data_timestamps.append(current_timestamp)
             
             # Save all collected data to mat file with positionGrasp
             print("Saving collected data to mat file...")
@@ -285,6 +295,7 @@ def main(args):
             args.data_pressure_avg = np.array(data_pressure_avg)
             args.data_pressure_raw = np.array(data_pressure_raw)
             args.data_iteration = np.array(data_iteration)
+            args.data_timestamps = np.array(data_timestamps)
             args.positionA = positionA
             args.positionA_true = positionA_true
             args.positionGrasp = positionGrasp
@@ -432,6 +443,7 @@ def main(args):
         
         # Collect data for this iteration
         iteration_num = len(data_iteration)  # Current iteration number
+        current_timestamp = rospy.Time.now().to_sec() - timestamp_start_time
         data_positions.append([currentPose_after_move.pose.position.x,
                               currentPose_after_move.pose.position.y,
                               currentPose_after_move.pose.position.z])
@@ -439,6 +451,7 @@ def main(args):
         data_pressure_avg.append(pressure_mean)
         data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
         data_iteration.append(iteration_num)
+        data_timestamps.append(current_timestamp)
 
         # Debug print
         print(f"Pressure raw: {pressure_avg}, mean: {pressure_mean:.2f}, v: {v}, step: ({dx:.6f}, {dy:.6f})")
@@ -455,6 +468,7 @@ def main(args):
                 args.data_pressure_avg = np.array(data_pressure_avg)
                 args.data_pressure_raw = np.array(data_pressure_raw)
                 args.data_iteration = np.array(data_iteration)
+                args.data_timestamps = np.array(data_timestamps)
                 args.positionA = positionA
                 args.positionA_true = positionA_true
                 args.positionGrasp = None
@@ -481,6 +495,7 @@ def main(args):
         args.data_pressure_avg = np.array(data_pressure_avg)
         args.data_pressure_raw = np.array(data_pressure_raw)
         args.data_iteration = np.array(data_iteration)
+        args.data_timestamps = np.array(data_timestamps)
         args.positionA = positionA
         args.positionA_true = positionA_true
         args.positionGrasp = None
