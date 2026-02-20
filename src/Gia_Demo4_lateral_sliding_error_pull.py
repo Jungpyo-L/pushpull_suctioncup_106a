@@ -99,10 +99,13 @@ def main(args):
 
 
   # Set the pose A
-#   positionA = [0.48383, -0.02173, 0.07531]  # Starting position
-#   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
-  # positionA = [0.48143, -0.02173, 0.07531]  # for toy
-  positionA = [0.53565, -0.12553, 0.01161]  # for paper
+  # positionA = [0.50684, -0.02715, 0.01155]  # for paper
+  # positionA = [0.50777, -0.00597, 0.07356]  # for toy
+  # positionA = [0.50800, 0.05516, 0.04611]  # for glue
+  # positionA = [0.51277, 0.04676, 0.02826]  # for acrylic plate
+  positionA = [0.51572, 0.06649, 0.01193]  # for pcb
+
+  
 
   # Calculate positionA_true by adding xoffset (mm) to y coordinate (second element) in meters
   xoffset_m = getattr(args, "xoffset", 0) * 1e-3  # Convert mm to meters
@@ -182,7 +185,7 @@ def main(args):
 
     # === Lateral sliding based only on pressure direction ===
     # step size is adaptHelp.d_lat (set from d_lat=0.0010 above)
-    target_grasp_pressure = 2000.0  # mean of 4 channels to trigger grasp (PULL)
+    target_grasp_pressure = 80.0  # mean of 4 channels to trigger grasp (PULL)
     stable_count_required = 20  # threshold를 연속으로 넘는 최소 횟수
     stable_count = 0
     grasp_flag = False  # Flag to track if grasp condition is met
