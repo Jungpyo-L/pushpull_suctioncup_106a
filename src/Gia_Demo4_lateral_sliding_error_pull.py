@@ -119,10 +119,22 @@ def main(args):
   try:
 
 
-    input("Press <Enter> to go to pose A (positionA_true)")
-    rtde_help.goToPose(poseA)
+    input("Press <Enter> to go to pose A (positionA_true with deformation)")
+    
+    # Get deformation argument (mm) and convert to meters
+    deformation_mm = getattr(args, "deformation", 3.0)
+    deformation_m = deformation_mm * 1e-3
+    
+    # Calculate positionA with deformation (move down by deformation)
+    positionA_with_deform = [positionA_true[0], 
+                             positionA_true[1], 
+                             positionA_true[2] - deformation_m]
+    poseA_with_deform = rtde_help.getPoseObj(positionA_with_deform, orientationA)
+    
+    print(f"Moving to positionA_true with deformation: {deformation_mm} mm downward")
+    rtde_help.goToPose(poseA_with_deform)
     rospy.sleep(1)
-    print("poseA: ", rtde_help.getCurrentPose())
+    print("poseA (with deformation): ", rtde_help.getCurrentPose())
     
     # === Initialize data collection lists ===
     # Store data for each iteration (including initial position)
@@ -407,48 +419,23 @@ def main(args):
             print("Waiting 1 second at positionGrasp...")
             rospy.sleep(1.0)
             
-            # Ask user to press Enter before proceeding to deformation
-            input("Press <Enter> to proceed to deformation...")
-
-            # === Deformation: use moveL to move down by specified deformation ===
-            # Read current position at threshold condition
+            # === Grasp: switch to PULL and hold suction for 3 seconds ===
+            # Read current position (already at positionGrasp with deformation applied at start)
             currentPose = rtde_help.getCurrentPose()
+            print(f"Current position at grasp: Z={currentPose.pose.position.z:.6f}m")
             
-            # Get deformation argument (mm) and convert to meters
-            deformation_mm = getattr(args, "deformation", 3.0)
-            deformation_m = deformation_mm * 1e-3
-            
-            # Calculate target position (move down by deformation)
-            target_position_deform = [currentPose.pose.position.x,
-                                     currentPose.pose.position.y,
-                                     currentPose.pose.position.z - deformation_m]
-            target_orientation_deform = [currentPose.pose.orientation.x,
-                                        currentPose.pose.orientation.y,
-                                        currentPose.pose.orientation.z,
-                                        currentPose.pose.orientation.w]
-            poseDeform = rtde_help.getPoseObj(target_position_deform, target_orientation_deform)
-            
-            print(f"Applying deformation: {deformation_mm} mm (downward) from Z={currentPose.pose.position.z:.6f}m")
-            
-            # Use moveL to move down (single smooth motion instead of steps)
-            rtde_help.goToPose(poseDeform, speed=0.05, acc=0.05)
-            rospy.sleep(1.0)  # Wait longer for motion to complete
-            
-            final_z = rtde_help.getCurrentPose().pose.position.z
-            print(f"Final Z after deformation: {final_z:.6f}m")
-
-            # After reaching deformation depth, wait 2 seconds (still in PULL state)
-            rospy.sleep(3.0)
-
-            # === Grasp: switch to PULL and hold suction for 2 seconds ===
             print("Switching to PULL state for grasp...")
             msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
             PushPull_pub.publish(msg)
             rospy.sleep(3.0)
 
-            # === Lift: use moveL to move up by same deformation + extra 20cm ===
-            # Read current position (after deformation)
+            # === Lift: use moveL to move up by deformation + extra 20cm ===
+            # Read current position (at positionGrasp)
             currentPose_after_deform = rtde_help.getCurrentPose()
+            
+            # Get deformation argument (mm) and convert to meters
+            deformation_mm = getattr(args, "deformation", 3.0)
+            deformation_m = deformation_mm * 1e-3
             
             # Move up by deformation distance + extra lift (20cm)
             extra_lift = 0.20  # 20cm
