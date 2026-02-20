@@ -335,9 +335,9 @@ def main(args):
 
             # === Move to position offset from positionA (x+15cm, y+15cm) ===
             offset_distance = 0.15  # 15cm in meters
-            positionOffset = [positionA[0] + offset_distance, 
+            positionOffset = [positionA[0] - offset_distance, 
                              positionA[1] + offset_distance, 
-                             positionA[2]]
+                             positionA[2] + 0.10]
             poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
             print(f"Moving to offset position from positionA: {positionOffset}")
             rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
