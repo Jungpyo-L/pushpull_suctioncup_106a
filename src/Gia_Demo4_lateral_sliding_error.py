@@ -99,10 +99,14 @@ def main(args):
 
 
   # Set the pose A
-#   positionA = [0.48383, -0.02173, 0.07531]  # Starting position
-#   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
-  # positionA = [0.48143, -0.02173, 0.07531]  # for toy
-  positionA = [0.53565, -0.12553, 0.01161]  # for paper
+
+  # positionA = [0.50684, -0.02715, 0.01155]  # for paper
+  # positionA = [0.50777, -0.00597, 0.07356]  # for toy
+  # positionA = [0.50800, 0.05516, 0.04611]  # for glue
+  # positionA = [0.51277, 0.04676, 0.02826]  # for acrylic plate
+  positionA = [0.51572, 0.06649, 0.01193]  # for pcb
+
+
 
   # Calculate positionA_true by adding xoffset (mm) to y coordinate (second element) in meters
   xoffset_m = getattr(args, "xoffset", 0) * 1e-3  # Convert mm to meters
@@ -247,16 +251,11 @@ def main(args):
             PushPull_pub.publish(msg)
             rospy.sleep(0.1)
             
-            # === Move to position offset from positionA (x-15cm, y+15cm, z+10cm) ===
-            offset_distance = 0.15  # 15cm in meters
-            positionOffset = [positionA[0] - offset_distance, 
-                             positionA[1] + offset_distance, 
-                             positionA[2] + 0.10]
-            poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-            print(f"Moving to offset position from positionA: {positionOffset}")
-            rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
+            # Return to initial position (positionA)
+            print("Returning to initial position (positionA)...")
+            rtde_help.goToPose(poseA, speed=0.1, acc=0.1)
             rospy.sleep(1)
-            print("Reached offset position")
+            print("Returned to positionA")
             
             # Stop pressure sampling and exit
             P_help.stopSampling()
@@ -541,27 +540,6 @@ def main(args):
         print(f"Pressure raw: {pressure_avg}, mean: {pressure_mean:.2f}, v: {v}, step: ({dx:.6f}, {dy:.6f})")
 
         if rospy.is_shutdown():
-            # === Stop servoL mode before switching to moveL ===
-            print("Stopping servoL mode...")
-            rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait for servoL to fully stop
-            
-            # Get current pose and switch to moveL mode
-            currentPose_shutdown = rtde_help.getCurrentPose()
-            currentPosition_shutdown = [currentPose_shutdown.pose.position.x,
-                                       currentPose_shutdown.pose.position.y,
-                                       currentPose_shutdown.pose.position.z]
-            currentOrientation_shutdown = [currentPose_shutdown.pose.orientation.x,
-                                           currentPose_shutdown.pose.orientation.y,
-                                           currentPose_shutdown.pose.orientation.z,
-                                           currentPose_shutdown.pose.orientation.w]
-            poseCurrent_shutdown = rtde_help.getPoseObj(currentPosition_shutdown, currentOrientation_shutdown)
-            
-            # Move to current position using moveL to activate control script in moveL mode
-            print("Switching to moveL mode...")
-            rtde_help.goToPose(poseCurrent_shutdown, speed=0.1, acc=0.1)
-            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
-            
             # Save collected data before shutdown
             if len(data_positions) > 0:
                 print("Saving collected data to mat file (shutdown)...")
@@ -582,48 +560,13 @@ def main(args):
                 file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
                 file_help.clearTmpFolder()
             
-            # Stop push before moving to offset
-            print("Turning off push...")
+            # Stop push before returning
             msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
             PushPull_pub.publish(msg)
-            rospy.sleep(0.1)
-            
-            # === Move to position offset from positionA (x-15cm, y+15cm, z+10cm) ===
-            offset_distance = 0.15  # 15cm in meters
-            positionOffset = [positionA[0] - offset_distance, 
-                             positionA[1] + offset_distance, 
-                             positionA[2] + 0.10]
-            poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-            print(f"Moving to offset position from positionA: {positionOffset}")
-            rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
-            rospy.sleep(1)
-            print("Reached offset position")
-            
             P_help.stopSampling()
             return
 
     # If we exit the loop without grasp (e.g., shutdown), clean up
-    # === Stop servoL mode before switching to moveL ===
-    print("Stopping servoL mode...")
-    rtde_help.stopAtCurrPoseAdaptive()
-    rospy.sleep(0.5)  # Wait for servoL to fully stop
-    
-    # Get current pose and switch to moveL mode
-    currentPose_exit = rtde_help.getCurrentPose()
-    currentPosition_exit = [currentPose_exit.pose.position.x,
-                            currentPose_exit.pose.position.y,
-                            currentPose_exit.pose.position.z]
-    currentOrientation_exit = [currentPose_exit.pose.orientation.x,
-                               currentPose_exit.pose.orientation.y,
-                               currentPose_exit.pose.orientation.z,
-                               currentPose_exit.pose.orientation.w]
-    poseCurrent_exit = rtde_help.getPoseObj(currentPosition_exit, currentOrientation_exit)
-    
-    # Move to current position using moveL to activate control script in moveL mode
-    print("Switching to moveL mode...")
-    rtde_help.goToPose(poseCurrent_exit, speed=0.1, acc=0.1)
-    rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
-    
     # Save collected data before exit
     if len(data_positions) > 0:
         print("Saving collected data to mat file (loop exit)...")
@@ -643,23 +586,6 @@ def main(args):
         xoffset_val = getattr(args, "xoffset", 0)
         file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
         file_help.clearTmpFolder()
-    
-    # Stop push before moving to offset
-    print("Turning off push...")
-    msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
-    PushPull_pub.publish(msg)
-    rospy.sleep(0.1)
-    
-    # === Move to position offset from positionA (x-15cm, y+15cm, z+10cm) ===
-    offset_distance = 0.15  # 15cm in meters
-    positionOffset = [positionA[0] - offset_distance, 
-                     positionA[1] + offset_distance, 
-                     positionA[2] + 0.10]
-    poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-    print(f"Moving to offset position from positionA: {positionOffset}")
-    rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
-    rospy.sleep(1)
-    print("Reached offset position")
     
     P_help.stopSampling()
     dataLoggerEnable(False)
