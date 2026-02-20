@@ -106,7 +106,7 @@ def main(args):
 
   # Calculate positionA_true by adding xoffset (mm) to y coordinate (second element) in meters
   xoffset_m = getattr(args, "xoffset", 0) * 1e-3  # Convert mm to meters
-  positionA_true = [positionA[0], positionA[1] + xoffset_m, positionA[2]]
+  positionA_true = [positionA[0]-xoffset_m, positionA[1] , positionA[2]]
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
   orientationA = tf.transformations.quaternion_from_euler(np.pi, 0, -np.pi/2,'sxyz') #static (s) rotating (r)
