@@ -311,14 +311,27 @@ def main(args):
             print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
             input("Press <Enter> to go to offset position...")
 
-            # === Ensure servoL is stopped and use moveL before moving to offset ===
-            # Double check servoL is stopped
+            # === Switch from servoL to moveL mode before moving to offset ===
+            # First, stop servoL mode
             rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait longer to ensure servoL is fully stopped
+            rospy.sleep(0.5)  # Wait for servoL to fully stop
             
-            # Also use stopAtCurrPose to ensure we're in moveL mode
-            rtde_help.stopAtCurrPose(asynchronous=False)
-            rospy.sleep(0.3)
+            # Get current pose and switch to moveL mode by moving to current position
+            # This ensures RTDE control script is running in moveL mode
+            currentPose_switch = rtde_help.getCurrentPose()
+            currentPosition_switch = [currentPose_switch.pose.position.x,
+                                      currentPose_switch.pose.position.y,
+                                      currentPose_switch.pose.position.z]
+            currentOrientation_switch = [currentPose_switch.pose.orientation.x,
+                                         currentPose_switch.pose.orientation.y,
+                                         currentPose_switch.pose.orientation.z,
+                                         currentPose_switch.pose.orientation.w]
+            poseCurrent = rtde_help.getPoseObj(currentPosition_switch, currentOrientation_switch)
+            
+            # Move to current position using moveL to activate control script in moveL mode
+            print("Switching to moveL mode...")
+            rtde_help.goToPose(poseCurrent, speed=0.1, acc=0.1)
+            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
 
             # === Move to position offset from positionA (x+15cm, y+15cm) ===
             offset_distance = 0.15  # 15cm in meters
@@ -327,20 +340,28 @@ def main(args):
                              positionA[2]]
             poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
             print(f"Moving to offset position from positionA: {positionOffset}")
-            rtde_help.goToPose(poseOffset)
+            rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
             rospy.sleep(1)
             
             # Wait for user to press Enter at offset position
             input("Press <Enter> to return to positionGrasp...")
             
-            # === Ensure servoL is stopped and use moveL ===
-            # Double check servoL is stopped
-            rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait longer to ensure servoL is fully stopped
+            # === Ensure we're in moveL mode before returning to positionGrasp ===
+            # Get current pose and ensure moveL mode is active
+            currentPose_before_return = rtde_help.getCurrentPose()
+            currentPosition_before_return = [currentPose_before_return.pose.position.x,
+                                             currentPose_before_return.pose.position.y,
+                                             currentPose_before_return.pose.position.z]
+            currentOrientation_before_return = [currentPose_before_return.pose.orientation.x,
+                                                currentPose_before_return.pose.orientation.y,
+                                                currentPose_before_return.pose.orientation.z,
+                                                currentPose_before_return.pose.orientation.w]
+            poseCurrent_before_return = rtde_help.getPoseObj(currentPosition_before_return, currentOrientation_before_return)
             
-            # Also use stopAtCurrPose to ensure we're in moveL mode
-            rtde_help.stopAtCurrPose(asynchronous=False)
-            rospy.sleep(0.3)
+            # Move to current position using moveL to ensure control script is ready
+            print("Ensuring moveL mode is active...")
+            rtde_help.goToPose(poseCurrent_before_return, speed=0.1, acc=0.1)
+            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
             
             # === Return to positionGrasp ===
             # Get orientation from currentPose_at_grasp
@@ -356,6 +377,9 @@ def main(args):
             # Wait 1 second at positionGrasp
             print("Waiting 1 second at positionGrasp...")
             rospy.sleep(1.0)
+            
+            # Ask user to press Enter before proceeding to deformation
+            input("Press <Enter> to proceed to deformation...")
 
             # === Deformation: use moveL to move down by specified deformation ===
             # Read current position at threshold condition
