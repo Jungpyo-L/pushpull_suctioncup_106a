@@ -53,6 +53,7 @@ class fileSaveHelp(object):
         print("grabbing columns from csv files into one dataframe")
         savingDictionary = {}
         errorCount = 0
+        splitedList = None  # Initialize to None
         for fileName in fileList:
             print("trying file: ", fileName)
             try:    
@@ -80,8 +81,13 @@ class fileSaveHelp(object):
             for key in list(argsDic.keys()):
                 savingDictionary[key]=argsDic[key]
         
-
-        savingFileName_noDir = 'DataLog_'+ '_'.join(splitedList[1:4])
+        # Generate filename: use splitedList if available, otherwise use timestamp
+        if splitedList is not None and len(splitedList) >= 4:
+            savingFileName_noDir = 'DataLog_'+ '_'.join(splitedList[1:4])
+        else:
+            # Fallback: use current date/time if no CSV files were processed
+            timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+            savingFileName_noDir = 'DataLog_' + timestamp
         savingFileName = self.ResultSavingDirectory + '/' + savingFileName_noDir + '_' + appendTxt + '.mat'
         print(savingFileName)
 

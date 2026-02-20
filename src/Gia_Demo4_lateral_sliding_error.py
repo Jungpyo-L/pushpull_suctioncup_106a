@@ -23,6 +23,8 @@ import os, sys
 import numpy as np
 import copy
 import time
+from datetime import datetime
+from scipy.io import savemat
 
 
 from netft_utils.srv import *
@@ -196,7 +198,19 @@ def main(args):
             args.positionGrasp = None  # No grasp position due to timeout
             
             xoffset_val = getattr(args, "xoffset", 0)
-            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+            try:
+                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+            except UnboundLocalError as e:
+                print(f"Warning: Error saving data params (no CSV files): {e}")
+                # Try to save with a fallback filename
+                timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+                try:
+                    savingDictionary = vars(args)
+                    savingFileName = file_help.ResultSavingDirectory + '/DataLog_' + timestamp + '_' + f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}' + '.mat'
+                    savemat(savingFileName, savingDictionary)
+                    print(f"Saved data to: {savingFileName}")
+                except Exception as e2:
+                    print(f"Error in fallback save: {e2}")
             file_help.clearTmpFolder()
             
             # Set PUSH_STATE to OFF_STATE (0)
@@ -273,7 +287,19 @@ def main(args):
             args.positionGrasp = positionGrasp
             
             xoffset_val = getattr(args, "xoffset", 0)
-            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+            try:
+                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+            except UnboundLocalError as e:
+                print(f"Warning: Error saving data params (no CSV files): {e}")
+                # Try to save with a fallback filename
+                timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+                try:
+                    savingDictionary = vars(args)
+                    savingFileName = file_help.ResultSavingDirectory + '/DataLog_' + timestamp + '_' + f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}' + '.mat'
+                    savemat(savingFileName, savingDictionary)
+                    print(f"Saved data to: {savingFileName}")
+                except Exception as e2:
+                    print(f"Error in fallback save: {e2}")
             file_help.clearTmpFolder()
             print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
             input("Press <Enter> to go to offset position...")
@@ -440,7 +466,21 @@ def main(args):
                 args.positionGrasp = None
                 
                 xoffset_val = getattr(args, "xoffset", 0)
-                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+                try:
+                    file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+                except UnboundLocalError as e:
+                    print(f"Warning: Error saving data params (no CSV files): {e}")
+                    # Try to save with a fallback filename
+                    import datetime
+                    timestamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+                    try:
+                        from scipy.io import savemat
+                        savingDictionary = vars(args)
+                        savingFileName = file_help.ResultSavingDirectory + '/DataLog_' + timestamp + '_' + f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}' + '.mat'
+                        savemat(savingFileName, savingDictionary)
+                        print(f"Saved data to: {savingFileName}")
+                    except Exception as e2:
+                        print(f"Error in fallback save: {e2}")
                 file_help.clearTmpFolder()
             
             # Stop push before returning
@@ -463,7 +503,21 @@ def main(args):
         args.positionGrasp = None
         
         xoffset_val = getattr(args, "xoffset", 0)
-        file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+        try:
+            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+        except UnboundLocalError as e:
+            print(f"Warning: Error saving data params (no CSV files): {e}")
+            # Try to save with a fallback filename
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
+            try:
+                from scipy.io import savemat
+                savingDictionary = vars(args)
+                savingFileName = file_help.ResultSavingDirectory + '/DataLog_' + timestamp + '_' + f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}' + '.mat'
+                savemat(savingFileName, savingDictionary)
+                print(f"Saved data to: {savingFileName}")
+            except Exception as e2:
+                print(f"Error in fallback save: {e2}")
         file_help.clearTmpFolder()
     
     P_help.stopSampling()
