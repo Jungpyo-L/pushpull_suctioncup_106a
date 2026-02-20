@@ -23,14 +23,13 @@ import os, sys
 import numpy as np
 import copy
 import time
-from datetime import datetime
-from scipy.io import savemat
 
 
 from netft_utils.srv import *
 from edg_ur10.srv import *
 from std_msgs.msg import Int8
 from pushpull_suctioncup_106a.msg import PushPull
+from suction_cup.srv import Enable
 
 
 from helperFunction.rtde_helper import rtdeHelp
@@ -73,6 +72,13 @@ def main(args):
   
   # === File saving helper ===
   file_help = fileSaveHelp()
+  
+  # === Data logging service ===
+  rospy.wait_for_service('data_logging')
+  dataLoggerEnable = rospy.ServiceProxy('data_logging', Enable)
+  dataLoggerEnable(False)
+  rospy.sleep(1)
+  file_help.clearTmpFolder()
  
   # === PushPull 토픽/메세지 ===
   DUTYCYCLE_100 = 100
@@ -143,6 +149,9 @@ def main(args):
     P_help.setNowAsOffset()
     rospy.sleep(0.5)
 
+    # Start data logging
+    dataLoggerEnable(True)
+    rospy.sleep(0.2)
 
     # Start push (PUSH ON)
     print("Starting push...")
@@ -188,6 +197,9 @@ def main(args):
             
             # Save all collected data to mat file
             print("Saving collected data to mat file (timeout)...")
+            # Stop data logging before saving
+            dataLoggerEnable(False)
+            rospy.sleep(0.1)
             args.data_positions = np.array(data_positions)
             args.data_v_vectors = np.array(data_v_vectors)
             args.data_pressure_avg = np.array(data_pressure_avg)
@@ -198,19 +210,7 @@ def main(args):
             args.positionGrasp = None  # No grasp position due to timeout
             
             xoffset_val = getattr(args, "xoffset", 0)
-            try:
-                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
-            except UnboundLocalError as e:
-                print(f"Warning: Error saving data params (no CSV files): {e}")
-                # Try to save with a fallback filename
-                timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-                try:
-                    savingDictionary = vars(args)
-                    savingFileName = file_help.ResultSavingDirectory + '/DataLog_' + timestamp + '_' + f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}' + '.mat'
-                    savemat(savingFileName, savingDictionary)
-                    print(f"Saved data to: {savingFileName}")
-                except Exception as e2:
-                    print(f"Error in fallback save: {e2}")
+            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
             file_help.clearTmpFolder()
             
             # Set PUSH_STATE to OFF_STATE (0)
@@ -277,6 +277,9 @@ def main(args):
             
             # Save all collected data to mat file with positionGrasp
             print("Saving collected data to mat file...")
+            # Stop data logging before saving
+            dataLoggerEnable(False)
+            rospy.sleep(0.1)
             args.data_positions = np.array(data_positions)
             args.data_v_vectors = np.array(data_v_vectors)
             args.data_pressure_avg = np.array(data_pressure_avg)
@@ -287,19 +290,7 @@ def main(args):
             args.positionGrasp = positionGrasp
             
             xoffset_val = getattr(args, "xoffset", 0)
-            try:
-                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
-            except UnboundLocalError as e:
-                print(f"Warning: Error saving data params (no CSV files): {e}")
-                # Try to save with a fallback filename
-                timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-                try:
-                    savingDictionary = vars(args)
-                    savingFileName = file_help.ResultSavingDirectory + '/DataLog_' + timestamp + '_' + f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}' + '.mat'
-                    savemat(savingFileName, savingDictionary)
-                    print(f"Saved data to: {savingFileName}")
-                except Exception as e2:
-                    print(f"Error in fallback save: {e2}")
+            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
             file_help.clearTmpFolder()
             print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
             input("Press <Enter> to go to offset position...")
@@ -456,6 +447,9 @@ def main(args):
             # Save collected data before shutdown
             if len(data_positions) > 0:
                 print("Saving collected data to mat file (shutdown)...")
+                # Stop data logging before saving
+                dataLoggerEnable(False)
+                rospy.sleep(0.1)
                 args.data_positions = np.array(data_positions)
                 args.data_v_vectors = np.array(data_v_vectors)
                 args.data_pressure_avg = np.array(data_pressure_avg)
@@ -466,21 +460,7 @@ def main(args):
                 args.positionGrasp = None
                 
                 xoffset_val = getattr(args, "xoffset", 0)
-                try:
-                    file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
-                except UnboundLocalError as e:
-                    print(f"Warning: Error saving data params (no CSV files): {e}")
-                    # Try to save with a fallback filename
-                    import datetime
-                    timestamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-                    try:
-                        from scipy.io import savemat
-                        savingDictionary = vars(args)
-                        savingFileName = file_help.ResultSavingDirectory + '/DataLog_' + timestamp + '_' + f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}' + '.mat'
-                        savemat(savingFileName, savingDictionary)
-                        print(f"Saved data to: {savingFileName}")
-                    except Exception as e2:
-                        print(f"Error in fallback save: {e2}")
+                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
                 file_help.clearTmpFolder()
             
             # Stop push before returning
@@ -493,6 +473,9 @@ def main(args):
     # Save collected data before exit
     if len(data_positions) > 0:
         print("Saving collected data to mat file (loop exit)...")
+        # Stop data logging before saving
+        dataLoggerEnable(False)
+        rospy.sleep(0.1)
         args.data_positions = np.array(data_positions)
         args.data_v_vectors = np.array(data_v_vectors)
         args.data_pressure_avg = np.array(data_pressure_avg)
@@ -503,28 +486,17 @@ def main(args):
         args.positionGrasp = None
         
         xoffset_val = getattr(args, "xoffset", 0)
-        try:
-            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
-        except UnboundLocalError as e:
-            print(f"Warning: Error saving data params (no CSV files): {e}")
-            # Try to save with a fallback filename
-            import datetime
-            timestamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-            try:
-                from scipy.io import savemat
-                savingDictionary = vars(args)
-                savingFileName = file_help.ResultSavingDirectory + '/DataLog_' + timestamp + '_' + f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}' + '.mat'
-                savemat(savingFileName, savingDictionary)
-                print(f"Saved data to: {savingFileName}")
-            except Exception as e2:
-                print(f"Error in fallback save: {e2}")
+        file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
         file_help.clearTmpFolder()
     
     P_help.stopSampling()
+    dataLoggerEnable(False)
     print("============ Python UR_Interface demo complete!")
   except rospy.ROSInterruptException:
+    dataLoggerEnable(False)
     return
   except KeyboardInterrupt:
+    dataLoggerEnable(False)
     return
 
 
