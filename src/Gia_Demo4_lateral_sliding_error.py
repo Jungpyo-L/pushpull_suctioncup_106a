@@ -256,11 +256,16 @@ def main(args):
         if stable_count >= stable_count_required:
             grasp_flag = True  # Set grasp_flag to True when condition is met
             
+            # === Stop servoL mode immediately when grasp condition is met ===
+            print("Stopping servoL mode...")
+            rtde_help.stopAtCurrPoseAdaptive()
+            rospy.sleep(0.5)  # Wait longer for servoL to fully stop
+            
             # Turn off push (PUSH_STATE to OFF_STATE)
             print("Turning off push...")
             msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
             PushPull_pub.publish(msg)
-            rospy.sleep(0.1)
+            rospy.sleep(0.2)
             # Save current end effector position (like positionA)
             
             currentPose_at_grasp = rtde_help.getCurrentPose()
@@ -319,9 +324,14 @@ def main(args):
             # Wait for user to press Enter at offset position
             input("Press <Enter> to return to positionGrasp...")
             
-            # === Stop servoL mode before switching to moveL ===
+            # === Ensure servoL is stopped and use moveL ===
+            # Double check servoL is stopped
             rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.2)
+            rospy.sleep(0.5)  # Wait longer to ensure servoL is fully stopped
+            
+            # Also use stopAtCurrPose to ensure we're in moveL mode
+            rtde_help.stopAtCurrPose(asynchronous=False)
+            rospy.sleep(0.3)
             
             # === Return to positionGrasp ===
             # Get orientation from currentPose_at_grasp
@@ -332,7 +342,7 @@ def main(args):
             poseGrasp = rtde_help.getPoseObj(positionGrasp, orientationGrasp)
             print(f"Returning to positionGrasp: {positionGrasp}")
             rtde_help.goToPose(poseGrasp, speed=0.1, acc=0.1)
-            rospy.sleep(1)
+            rospy.sleep(1.5)  # Wait longer for moveL to complete
             
             # Wait 1 second at positionGrasp
             print("Waiting 1 second at positionGrasp...")
@@ -360,7 +370,7 @@ def main(args):
             
             # Use moveL to move down (single smooth motion instead of steps)
             rtde_help.goToPose(poseDeform, speed=0.05, acc=0.05)
-            rospy.sleep(0.5)  # Wait for motion to complete
+            rospy.sleep(1.0)  # Wait longer for motion to complete
             
             final_z = rtde_help.getCurrentPose().pose.position.z
             print(f"Final Z after deformation: {final_z:.6f}m")
@@ -396,7 +406,7 @@ def main(args):
             
             # Use moveL to move up (single smooth motion instead of steps)
             rtde_help.goToPose(poseLift, speed=0.1, acc=0.1)
-            rospy.sleep(0.5)  # Wait for motion to complete
+            rospy.sleep(1.5)  # Wait longer for motion to complete
             
             final_z_lift = rtde_help.getCurrentPose().pose.position.z
             print(f"Final Z after lift: {final_z_lift:.6f}m")
