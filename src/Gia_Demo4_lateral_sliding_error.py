@@ -218,7 +218,7 @@ def main(args):
             args.positionGrasp = None  # No grasp position due to timeout
             
             xoffset_val = getattr(args, "xoffset", 0)
-            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
             file_help.clearTmpFolder()
             
             # Set PUSH_STATE to OFF_STATE (0)
@@ -306,7 +306,7 @@ def main(args):
             args.positionGrasp = positionGrasp
             
             xoffset_val = getattr(args, "xoffset", 0)
-            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_success')
             file_help.clearTmpFolder()
             print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
             input("Press <Enter> to go to offset position...")
@@ -530,7 +530,7 @@ def main(args):
                 args.positionGrasp = None
                 
                 xoffset_val = getattr(args, "xoffset", 0)
-                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
                 file_help.clearTmpFolder()
             
             # Stop push before returning
@@ -557,7 +557,7 @@ def main(args):
         args.positionGrasp = None
         
         xoffset_val = getattr(args, "xoffset", 0)
-        file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}')
+        file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
         file_help.clearTmpFolder()
     
     P_help.stopSampling()
