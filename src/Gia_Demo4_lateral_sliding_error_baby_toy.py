@@ -177,11 +177,11 @@ def main(args):
 
     # === Lateral sliding based only on pressure direction ===
     # step size is adaptHelp.d_lat (set from d_lat=0.0010 above)
-    # target_grasp_pressure = 50.0  # mean of 4 channels to trigger grasp (PULL)
+    target_grasp_pressure = 12.5  # mean of 4 channels to trigger grasp (PULL)
 
-    target_grasp_pressure = 15.0  # mean of 4 channels to trigger grasp (PULL) for baby_toy
-    # stable_count_required = 20  # threshold를 연속으로 넘는 최소 횟수 
-    stable_count_required = 8  # threshold를 연속으로 넘는 최소 횟수 for baby_toy (pressure is lower and noisier, so increase count)
+    # target_grasp_pressure = 15.0  # mean of 4 channels to trigger grasp (PULL) for baby_toy
+    stable_count_required = 8  # threshold를 연속으로 넘는 최소 횟수 
+    # stable_count_required = 8  # threshold를 연속으로 넘는 최소 횟수 for baby_toy (pressure is lower and noisier, so increase count)
 
     stable_count = 0
     grasp_flag = False  # Flag to track if grasp condition is met
