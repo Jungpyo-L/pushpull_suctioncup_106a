@@ -56,26 +56,15 @@ def main():
   # adaptMotionHelp: dw는 생성 시 도(deg)로 넘기며 내부에서 rad로 저장됨. 루프 내에서는 매 스텝 각도(rad)를 설정함.
   adaptHelp = adaptMotionHelp(d_lat=0.0005, dw=0.4, d_z=0.0010)
 
-<<<<<<< HEAD
-  # === 회전: 현재 불균형(P_E-P_W)으로 방향·크기 결정 → 회전이 원인, 압력 변화가 결과 ===
-  # 반시계(CCW) 돌리면 → P_E↑ 또는 P_W↓ 되는 쪽. 시계(CW) 돌리면 → P_E↓ 또는 P_W↑
-  align_tolerance = 2.0   # |P_E - P_W| < 이 값이면 회전 없음 (데드존)
-  Kp_rot_deg = 0.08       # [deg/압력차] 불균형 1당 회전량. 적응적으로 크기 결정
-  min_rot_deg = 0.15      # 최소 회전 (도). 불균형이 작아도 이만큼은 돌림
-  max_rot_deg = 1.2       # 스텝당 최대 회전 (도)
-=======
   # === 회전 P 제어 (적응형, 안전을 위해 모든 각도는 도(deg) 단위로 설정 후 rad로만 변환) ===
   Kp_rot_deg = 0.03       # [deg/압력차] P_E-P_W 1당 회전량 (도). 작을수록 부드러움
-  max_rot_deg = 3       # 스텝당 최대 회전 각도 (도). 실험 안전용 상한
+  max_rot_deg = 2.8       # 스텝당 최대 회전 각도 (도). 실험 안전용 상한
   min_rot_deg = 0.05      # 이 값 미만이면 회전 없음 (데드존, 흔들림 방지)
->>>>>>> 4086cde447ece0d86346e23e9fb1f3a12d0e53a8
 
-  # === Z(수직) P 제어: 목표 압력 유지. 계속 올라가면 z_direction_sign = -1 로 방향 반전 시도 ===
+  # === Z(수직) P 제어: 압력 10 유지 (모자라면 내려가고, 많으면 올라감) ===
   base_d_z_m = 0.001      # 기준 Z 스텝 [m]
-  max_d_z_m = 0.0015      # 스텝당 최대 Z 이동 [m] (내려갈 때)
-  max_d_z_m_up = 0.0025   # 올라갈 때 최대 스텝 [m]. 곡선이 올라갈 때 빨리 따라가도록 더 크게
-  Kp_z = 0.0002           # [m/압력차] (target - mean) 1당 Z 이동량
-  z_direction_sign = -1   # 1: body Z 그대로. -1: Z가 계속 올라가면 반대로 (프레임에 따라)
+  max_d_z_m = 0.002       # 스텝당 최대 Z 이동 [m]. 부드럽게 하기 위한 상한
+  Kp_z = 0.00017          # [m/압력차] (target - mean) 1당 Z 이동량
 
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
@@ -136,9 +125,15 @@ def main():
 
 
     # Z축 목표 압력 유지. 모자라면 내려가고, 많으면 올라감
-    target_pressure = 15.0
+    target_pressure = 16.0
     pressure_threshold = 5.0   # 이 값 이하는 0으로 필터
-    z_tolerance = 1.5          # |평균압력 - target| < 이 값이면 Z 유지 (넓히면 올라감/내려감 덜 함)
+    z_tolerance = 1.0          # |평균압력 - target| < 이 값이면 Z 유지
+
+    # ---------- 회전: P_E 경향(증가/감소 연속 횟수)으로 방향 결정 ----------
+    trend_count_threshold = 2  # 이 횟수 넘으면 경향으로 판단 → 방향 전환
+    prev_P_E = None
+    P_E_up_count = 0    # P_E가 연속으로 커진 횟수
+    P_E_down_count = 0  # P_E가 연속으로 작아진 횟수
 
     while 1:
         # Get pressure data
@@ -163,17 +158,28 @@ def main():
         pressure_diff = abs(pressure_mean - target_pressure)
         pressure_error = target_pressure - pressure_mean   # 양수: 압력 부족(내려감), 음수: 압력 과다(올라감)
 
-        # ---------- 회전: 현재 불균형으로 방향·크기 결정 (회전 → 그 결과로 P_E↑/P_W↓ 또는 P_E↓/P_W↑) ----------
-        # P_E - P_W < 0 → 동쪽 낮음 → CCW 돌려서 P_E↑/P_W↓ 되게.  P_E - P_W > 0 → 서쪽 낮음 → CW 돌려서 P_E↓/P_W↑ 되게
-        P_diff = P_E - P_W
-        if abs(P_diff) < align_tolerance:
+        # ---------- 회전: P_E가 커지는 경향(연속 3회↑) → 반시계, 작아지는 경향(연속 3회↓) → 시계 ----------
+        if prev_P_E is not None:
+            if P_E > prev_P_E:
+                P_E_up_count += 1
+                P_E_down_count = 0
+            elif P_E < prev_P_E:
+                P_E_down_count += 1
+                P_E_up_count = 0
+            else:
+                P_E_up_count = 0
+                P_E_down_count = 0
+        prev_P_E = P_E
+
+        if P_E_up_count >= trend_count_threshold:
+            align_direction = 1   # 반시계 (CCW)
+            rotation_angle_deg = max_rot_deg
+        elif P_E_down_count >= trend_count_threshold:
+            align_direction = -1  # 시계 (CW)
+            rotation_angle_deg = max_rot_deg
+        else:
             align_direction = 0
             rotation_angle_deg = 0.0
-        else:
-            # 방향: 동쪽(P_E)이 낮으면 CCW(1), 서쪽(P_W)이 낮으면 CW(-1)
-            align_direction = 1 if P_diff < 0 else -1   # P_diff<0 → CCW, P_diff>0 → CW
-            rotation_angle_deg = Kp_rot_deg * abs(P_diff)
-            rotation_angle_deg = np.clip(rotation_angle_deg, min_rot_deg, max_rot_deg)
         rotation_angle_rad = abs(rotation_angle_deg) * (np.pi / 180.0)
 
         # Lateral: 고정 (오른쪽으로)
@@ -186,25 +192,17 @@ def main():
         else:
             T_align = np.eye(4)
 
-        # ---------- Z: 목표 압력 유지. 올라갈 때는 스텝을 더 크게 (곡선이 올라갈 때 빨리 따라가도록) ----------
+        # ---------- Z: 목표 압력 유지 P 제어 (모자라면 내려가고, 많으면 올라감) ----------
         if pressure_diff < z_tolerance:
             step_z_m = 0.0
             z_direction = 0
-            step_z_mag = 0.0
         else:
             step_z_m = Kp_z * pressure_error
             step_z_m = np.clip(step_z_m, -max_d_z_m, max_d_z_m)
             z_direction = int(np.sign(step_z_m))
-            # 올라갈 때(z_direction=-1): 스텝을 더 크게 해서 회전 전에 빨리 올라가도록
-            if z_direction == -1:
-                step_z_mag = min(max_d_z_m_up, abs(step_z_m) * 1.6)
-            else:
-                step_z_mag = abs(step_z_m)
-        # body Z 방향이 월드와 반대일 수 있음: z_direction_sign = -1 이면 실제 명령 반전
-        actual_z_direction = 0 if z_direction == 0 else (z_direction_sign * z_direction)
-        if actual_z_direction != 0:
-            adaptHelp.d_z_normal = step_z_mag
-            T_normalMove = adaptHelp.get_Tmat_TranlateInZ(direction=actual_z_direction)
+        if z_direction != 0:
+            adaptHelp.d_z_normal = abs(step_z_m)
+            T_normalMove = adaptHelp.get_Tmat_TranlateInZ(direction=z_direction)
             adaptHelp.d_z_normal = base_d_z_m   # 다음 루프를 위해 기본값 복원
         else:
             T_normalMove = np.eye(4)
@@ -222,7 +220,7 @@ def main():
         current_y = currentPose.pose.position.y
        
         # Debug print (P_E 경향: up/down count, 회전은 도 단위)
-        print(f"Y: {current_y:.5f} | P_E: {P_E:.2f} P_W: {P_W:.2f} P_diff: {P_diff:.2f} | Rot: {rotation_angle_deg:.4f}deg dir {align_direction} | Mean: {pressure_mean:.2f} Z: {z_direction} {step_z_mag*1000:.3f}mm")
+        print(f"Y: {current_y:.5f} | P_E: {P_E:.2f}, P_W: {P_W:.2f} | up#{P_E_up_count} down#{P_E_down_count} | Rot: {rotation_angle_deg:.4f}deg dir {align_direction} | Mean: {pressure_mean:.2f}, err: {pressure_error:.2f} | Z: {z_direction} step {step_z_m*1000:.3f}mm")
 
 
         if rospy.is_shutdown():
@@ -269,4 +267,3 @@ def main():
 
 if __name__ == '__main__':
   main()
-
