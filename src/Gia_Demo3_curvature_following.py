@@ -54,11 +54,11 @@ def main():
   # Setup helper functions
   rtde_help = rtdeHelp(125)
   # adaptMotionHelp: dw는 생성 시 도(deg)로 넘기며 내부에서 rad로 저장됨. 루프 내에서는 매 스텝 각도(rad)를 설정함.
-  adaptHelp = adaptMotionHelp(d_lat=0.0010, dw=0.3, d_z=0.0010)
+  adaptHelp = adaptMotionHelp(d_lat=0.0005, dw=0.4, d_z=0.0010)
 
   # === 회전 P 제어 (적응형, 안전을 위해 모든 각도는 도(deg) 단위로 설정 후 rad로만 변환) ===
-  Kp_rot_deg = 0.04       # [deg/압력차] P_E-P_W 1당 회전량 (도). 작을수록 부드러움
-  max_rot_deg = 0.5       # 스텝당 최대 회전 각도 (도). 실험 안전용 상한
+  Kp_rot_deg = 0.03       # [deg/압력차] P_E-P_W 1당 회전량 (도). 작을수록 부드러움
+  max_rot_deg = 3       # 스텝당 최대 회전 각도 (도). 실험 안전용 상한
   min_rot_deg = 0.05      # 이 값 미만이면 회전 없음 (데드존, 흔들림 방지)
 
   # === Z(수직) P 제어: 압력 10 유지 (모자라면 내려가고, 많으면 올라감) ===
@@ -87,7 +87,7 @@ def main():
 
 
   # Set the pose A
-  positionA = [0.51010, 0.-0.08520, 0.03163]  # Starting position
+  positionA = [0.51008, 0.-0.07210, 0.03875]  # Starting position
 #   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
@@ -125,7 +125,7 @@ def main():
 
 
     # Z축 목표 압력 유지. 모자라면 내려가고, 많으면 올라감
-    target_pressure = 8.0
+    target_pressure = 15.0
     pressure_threshold = 5.0   # 이 값 이하는 0으로 필터
     z_tolerance = 1.0          # |평균압력 - target| < 이 값이면 Z 유지
 
@@ -267,5 +267,4 @@ def main():
 
 if __name__ == '__main__':
   main()
-
 
