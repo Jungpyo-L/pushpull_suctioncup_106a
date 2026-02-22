@@ -100,12 +100,12 @@ def main(args):
 
   # Set the pose A
 
-  # positionA = [0.50684, -0.02715, 0.01155]  # for paper
-  # positionA = [0.50777, -0.00597, 0.07356]  # for toy
-  positionA = [0.50800, 0.05516, 0.04611]  # for glue
-  # positionA = [0.51277, 0.04676, 0.02826]  # for acrylic plate
-  # positionA = [0.51572, 0.06649, 0.01193]  # for pcb
-  # positionA = [0.53469, -0.02315, 0.17156]  # for round_jar
+#   positionA = [0.50684, -0.02715, 0.01155]  # for paper
+#   positionA = [0.50777, -0.00597, 0.07356]  # for toy
+#   positionA = [0.50800, 0.05516, 0.04611]  # for glue
+#   positionA = [0.51277, 0.04676, 0.02826]  # for acrylic_plate
+#   positionA = [0.51572, 0.06649, 0.01193]  # for pcb
+  positionA = [0.53469, -0.02315, 0.17156]  # for round_jar
 
 
 
@@ -680,7 +680,7 @@ def main(args):
 if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
-  parser.add_argument('--deformation', type=float, default=3, help='Deformation (mm) to apply downward before grasp')
+  parser.add_argument('--deformation', type=float, default=3.5, help='Deformation (mm) to apply downward before grasp')
   parser.add_argument('--material', type=str, default="paper", help='object to test')
   parser.add_argument('--xoffset', type=float, default=0, help='X offset (mm) to add to positionA y coordinate')
 
