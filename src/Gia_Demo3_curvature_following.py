@@ -53,17 +53,18 @@ def main():
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.0010, dw=0.57, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
-# adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
-  
-  # === d_w 동적 조정을 위한 변수 설정 ===
-  initial_dw_deg = 0.57  # 초기 d_w 값 (도 단위)
-  initial_dw_rad = initial_dw_deg * np.pi / 180.0  # 라디안으로 변환
-  dw_change_deg = 0.03  # align 변경 시 d_w 변화량 (도 단위)
-  dw_change_rad = dw_change_deg * np.pi / 180.0  # 라디안으로 변환
-  prev_align_direction = 0  # 이전 align_direction 값
-  align_repeat_count = 0  # 같은 align_direction 값이 반복된 횟수
-  align_repeat_threshold = 2  # 초기값으로 복귀하기 위한 반복 횟수
+  # adaptMotionHelp: dw는 생성 시 도(deg)로 넘기며 내부에서 rad로 저장됨. 루프 내에서는 매 스텝 각도(rad)를 설정함.
+  adaptHelp = adaptMotionHelp(d_lat=0.0010, dw=0.3, d_z=0.0010)
+
+  # === 회전 P 제어 (적응형, 안전을 위해 모든 각도는 도(deg) 단위로 설정 후 rad로만 변환) ===
+  Kp_rot_deg = 0.04       # [deg/압력차] P_E-P_W 1당 회전량 (도). 작을수록 부드러움
+  max_rot_deg = 0.5       # 스텝당 최대 회전 각도 (도). 실험 안전용 상한
+  min_rot_deg = 0.05      # 이 값 미만이면 회전 없음 (데드존, 흔들림 방지)
+
+  # === Z(수직) P 제어: 압력 10 유지 (모자라면 내려가고, 많으면 올라감) ===
+  base_d_z_m = 0.001      # 기준 Z 스텝 [m]
+  max_d_z_m = 0.002       # 스텝당 최대 Z 이동 [m]. 부드럽게 하기 위한 상한
+  Kp_z = 0.00015          # [m/압력차] (target - mean) 1당 Z 이동량
 
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
@@ -123,27 +124,18 @@ def main():
     input("Press <Enter> to start surface following")
 
 
-    # target_pressure = 20.0  # Target pressure value
-    target_pressure = 17.0  # Target pressure value
+    # Z축 목표 압력: 10 유지. 모자라면 내려가고, 많으면 올라감
+    target_pressure = 15.0
 
-    # pressure_threshold = 10.0  # Values below this are set to 0
-    pressure_threshold = 5.0  # Values below this are set to 0
+    pressure_threshold = 10.0   # 이 값 이하는 0으로 필터 (노이즈/미접촉 구간 무시). 10으로 두면 10 이하를 0 처리
+    z_tolerance = 1.0          # |평균압력 - target| < 이 값이면 Z 유지 (부드럽게)
 
-    align_tolerance = 2.0  # If |P_E - P_W| < 5, stop rotating
-    z_tolerance = 2.0  # If |pressure_mean - target_pressure| < 2, maintain z
-   
-    # === 경향성 추적을 위한 히스토리 설정 ===
-    history_size = 10  # 최근 N개의 값을 저장하여 경향성 계산
-    P_E_history = []  # P_E 값의 히스토리
-    P_W_history = []  # P_W 값의 히스토리
-    trend_weight = 0.5  # 경향성 가중치 (0.0~1.0, 높을수록 경향성에 더 의존)
-   
     while 1:
         # Get pressure data
         rospy.sleep(0.05)  # Small delay to allow pressure data to update
         pressure_avg = P_help.four_pressure
        
-        # Filter pressure data: set values <= 10 to 0
+        # Filter: raw pressure <= pressure_threshold -> 0 (현재 threshold=5 이하 0 처리)
         pressure_filtered = [p if p > pressure_threshold else 0.0 for p in pressure_avg]
        
         # Calculate P_E, P_W, P_N, P_S
@@ -158,125 +150,42 @@ def main():
        
         # Calculate average pressure
         pressure_mean = np.mean(pressure_filtered)
-       
-        # === 경향성 추적: 히스토리에 현재 값 추가 ===
-        P_E_history.append(P_E)
-        P_W_history.append(P_W)
-        
-        # 히스토리 크기 제한
-        if len(P_E_history) > history_size:
-            P_E_history.pop(0)
-            P_W_history.pop(0)
-        
-        # === 경향성 계산 (변화율) ===
-        P_E_trend = 0.0  # P_E의 변화율 (양수면 증가, 음수면 감소)
-        P_W_trend = 0.0  # P_W의 변화율 (양수면 증가, 음수면 감소)
-        trend_threshold = 0.5  # 트렌드가 의미있을 최소 변화량
-        
-        if len(P_E_history) >= 3:  # 최소 3개 이상의 데이터가 있어야 경향성 계산 가능
-            # 최근 값들의 평균 변화율 계산
-            recent_window = min(5, len(P_E_history))  # 최근 5개 또는 전체 사용
-            recent_P_E = P_E_history[-recent_window:]
-            recent_P_W = P_W_history[-recent_window:]
-            
-            # 최근 절반과 이전 절반의 평균 차이로 경향성 계산
-            if len(recent_P_E) >= 2:
-                mid_point = len(recent_P_E) // 2
-                P_E_old_avg = np.mean(recent_P_E[:mid_point])
-                P_E_new_avg = np.mean(recent_P_E[mid_point:])
-                P_E_trend = P_E_new_avg - P_E_old_avg
-                
-                P_W_old_avg = np.mean(recent_P_W[:mid_point])
-                P_W_new_avg = np.mean(recent_P_W[mid_point:])
-                P_W_trend = P_W_new_avg - P_W_old_avg
-        
-        # === 현재 값 기반 방향 결정 ===
-        P_diff_current = P_E - P_W
-        current_based_direction = 0
-        if abs(P_diff_current) >= align_tolerance:
-            if P_diff_current > 0:
-                current_based_direction = 1  # CCW
-            else:
-                current_based_direction = -1  # CW
-        
-        # === 트렌드 기반 방향 결정 (적응적) ===
-        # P_W가 감소하거나 P_E가 증가하면 → CCW (1)
-        # P_W가 증가하거나 P_E가 감소하면 → CW (-1)
-        trend_based_direction = 0
-        if abs(P_E_trend) >= trend_threshold or abs(P_W_trend) >= trend_threshold:
-            # P_E가 증가하는 경향이 있으면 CCW
-            # P_W가 감소하는 경향이 있으면 CCW
-            if P_E_trend > trend_threshold or P_W_trend < -trend_threshold:
-                trend_based_direction = 1  # CCW
-            # P_E가 감소하는 경향이 있으면 CW
-            # P_W가 증가하는 경향이 있으면 CW
-            elif P_E_trend < -trend_threshold or P_W_trend > trend_threshold:
-                trend_based_direction = -1  # CW
-        
-        # === 현재 값과 트렌드를 적응적으로 결합하여 최종 방향 결정 ===
-        # 트렌드가 명확하면 트렌드를 우선, 그렇지 않으면 현재 값 사용
-        if trend_based_direction != 0:
-            # 트렌드가 있으면 트렌드와 현재 값을 가중 평균
-            # 트렌드가 강할수록 더 많이 반영
-            trend_strength = min(abs(P_E_trend), abs(P_W_trend)) if (abs(P_E_trend) > 0 and abs(P_W_trend) > 0) else max(abs(P_E_trend), abs(P_W_trend))
-            adaptive_weight = min(trend_weight * (1.0 + trend_strength / 5.0), 0.8)  # 최대 0.8까지
-            
-            combined_signal = (1.0 - adaptive_weight) * current_based_direction + adaptive_weight * trend_based_direction
-            align_direction = int(np.sign(combined_signal)) if abs(combined_signal) > 0.1 else trend_based_direction
-        else:
-            # 트렌드가 없거나 약하면 현재 값 기반으로 결정
-            align_direction = current_based_direction
-        
-        # 최종 차이값 계산 (디버그용)
-        P_diff = abs(P_diff_current)
-       
-        # === d_w 동적 조정 로직 ===
-        # align_direction이 변경되었는지 확인 (-1 <-> 1 변경)
-        if prev_align_direction != 0 and align_direction != 0:
-            if prev_align_direction != align_direction:
-                # align_direction이 변경됨 (-1에서 1로 또는 1에서 -1로)
-                # d_w를 0.03도만큼 변경 (라디안으로 변환하여 적용)
-                adaptHelp.dw += dw_change_rad
-                align_repeat_count = 0  # 반복 카운트 리셋
-                print(f"Align changed: {prev_align_direction} -> {align_direction}, d_w adjusted to: {adaptHelp.dw * 180.0 / np.pi:.4f} deg")
-            elif prev_align_direction == align_direction:
-                # 같은 align_direction 값이 반복됨
-                align_repeat_count += 1
-                if align_repeat_count >= align_repeat_threshold:
-                    # 2번 반복되면 초기값으로 복귀
-                    adaptHelp.dw = initial_dw_rad
-                    align_repeat_count = 0  # 카운트 리셋
-                    print(f"Align repeated {align_repeat_threshold} times, d_w reset to initial: {initial_dw_deg:.4f} deg")
-        
-        # 현재 align_direction을 이전 값으로 저장
-        prev_align_direction = align_direction
-       
-        # Determine z direction based on average pressure
-        # pressure_mean < 20: move down (direction=1)
-        # pressure_mean > 20: move up (direction=-1)
-        # If |pressure_mean - target_pressure| < z_tolerance, maintain z
         pressure_diff = abs(pressure_mean - target_pressure)
-        if pressure_diff < z_tolerance:
-            z_direction = 0  # maintain z (within tolerance)
-        elif pressure_mean < target_pressure:
-            z_direction = 1  # move down
-        else:  # pressure_mean > target_pressure
-            z_direction = -1  # move up
-       
-        # Lateral movement is fixed: always move right (-y direction, 0.005)
+        pressure_error = target_pressure - pressure_mean   # 양수: 압력 부족(내려감), 음수: 압력 과다(올라감)
+
+        # ---------- 회전: P 제어 (적응형, 각도는 도 단위로만 계산 후 rad 변환) ----------
+        P_diff_current = P_E - P_W   # 양수: 동쪽이 더 눌림 -> CCW(1), 음수: 서쪽 -> CW(-1)
+        rotation_angle_deg = Kp_rot_deg * P_diff_current
+        rotation_angle_deg = np.clip(rotation_angle_deg, -max_rot_deg, max_rot_deg)
+        if abs(rotation_angle_deg) < min_rot_deg:
+            rotation_angle_deg = 0.0
+        align_direction = int(np.sign(rotation_angle_deg)) if rotation_angle_deg != 0 else 0
+        rotation_angle_rad = abs(rotation_angle_deg) * (np.pi / 180.0)
+
+        # Lateral: 고정 (오른쪽으로)
         T_later = adaptHelp.get_Tmat_TranlateInY(direction=-1)
-       
-        # Align rotation (only if needed)
+
+        # Align: 이 스텝만 회전량 적용 (adaptHelp.dw는 rad)
         if align_direction != 0:
+            adaptHelp.dw = rotation_angle_rad
             T_align = adaptHelp.get_Tmats_RotationAtX(direction=align_direction)
         else:
-            T_align = np.eye(4)  # No rotation
-       
-        # Normal movement (z direction, only if needed)
-        if z_direction != 0:
-            T_normalMove = adaptHelp.get_Tmat_TranlateInZ(direction=z_direction)
+            T_align = np.eye(4)
+
+        # ---------- Z: 압력 10 유지 P 제어 (모자라면 내려가고, 많으면 올라감) ----------
+        if pressure_diff < z_tolerance:
+            step_z_m = 0.0
+            z_direction = 0
         else:
-            T_normalMove = np.eye(4)  # No z movement
+            step_z_m = Kp_z * pressure_error
+            step_z_m = np.clip(step_z_m, -max_d_z_m, max_d_z_m)
+            z_direction = int(np.sign(step_z_m))
+        if z_direction != 0:
+            adaptHelp.d_z_normal = abs(step_z_m)
+            T_normalMove = adaptHelp.get_Tmat_TranlateInZ(direction=z_direction)
+            adaptHelp.d_z_normal = base_d_z_m   # 다음 루프를 위해 기본값 복원
+        else:
+            T_normalMove = np.eye(4)
        
         # Combine transformations: lateral --> align --> normal
         T_move = T_later @ T_align @ T_normalMove
@@ -290,9 +199,9 @@ def main():
         currentPose = rtde_help.getCurrentPose()
         current_y = currentPose.pose.position.y
        
-        # Debug print
-        current_dw_deg = adaptHelp.dw * 180.0 / np.pi
-        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}), Pressure: {pressure_filtered}, P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff:.2f}, Mean: {pressure_mean:.2f}, Mean_diff: {pressure_diff:.2f}, Align: {align_direction}, Z: {z_direction}, d_w: {current_dw_deg:.4f}deg, Trend_E: {P_E_trend:.3f}, Trend_W: {P_W_trend:.3f}, TrendDir: {trend_based_direction}, CurrDir: {current_based_direction}")
+        # Debug print (회전 각도는 도 단위로 출력)
+        rot_deg = rotation_angle_deg
+        print(f"Y: {current_y:.5f} (target: {positionA_y_end:.5f}) | P_E: {P_E:.2f}, P_W: {P_W:.2f}, P_diff: {P_diff_current:.2f} | Mean: {pressure_mean:.2f}, err: {pressure_error:.2f} | Rot: {rot_deg:.4f}deg (dir {align_direction}), Z: {z_direction} (step {step_z_m*1000:.3f}mm)")
 
 
         if rospy.is_shutdown():
