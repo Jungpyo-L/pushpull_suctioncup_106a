@@ -56,7 +56,7 @@ def main(args):
     # === 초기 disengage position 설정 ===
     # chamber 위치에 따라 기준 변경 (아래 조건은 첫번째 코드와 동일)
     if args.corner == 180:
-        disengagePosition_init = [0.6672, -.236, 0.0531] #35mm=0.035m --> 0.035+0.0180=0.053m
+        disengagePosition_init = [0.6672, -.236, 0.0545] #35mm=0.035m --> 0.035+0.0180=0.053m
     elif args.corner == 270:
         disengagePosition_init = [0.555, 0.100, 0.0170] #25mm=0.025m --> 0.025+0.0170=0.042m
     elif args.corner == 90:
@@ -216,7 +216,7 @@ if __name__ == "__main__":
     parser.add_argument('--angle', type=int, default=360)
     parser.add_argument('--startAngle', type=int, default=0)
     parser.add_argument('--normalForce', type=float, default=1.5)
-    parser.add_argument('--deformation', type=float, default=3.0)
+    parser.add_argument('--deformation', type=float, default=1.0)
     parser.add_argument('--zHeight', type=bool, default=True)
     parser.add_argument('--ch', type=int, default=4)
     parser.add_argument('--corner', type=int, default=180)
