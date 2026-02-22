@@ -56,9 +56,12 @@ def main():
   # adaptMotionHelp: dw는 생성 시 도(deg)로 넘기며 내부에서 rad로 저장됨. 루프 내에서는 매 스텝 각도(rad)를 설정함.
   adaptHelp = adaptMotionHelp(d_lat=0.0010, dw=0.3, d_z=0.0010)
 
-  # === 회전: P_E 경향 기반 (연속 count 넘으면 방향 전환). 크게 돌리려면 max_rot_deg 올리기 ===
-  max_rot_deg = 1.2       # 스텝당 회전 각도 (도). 0.5→1.2로 더 회전하도록
-  # (Kp_rot_deg, min_rot_deg는 경향 모드에서 미사용)
+  # === 회전: 현재 불균형(P_E-P_W)으로 방향·크기 결정 → 회전이 원인, 압력 변화가 결과 ===
+  # 반시계(CCW) 돌리면 → P_E↑ 또는 P_W↓ 되는 쪽. 시계(CW) 돌리면 → P_E↓ 또는 P_W↑
+  align_tolerance = 2.0   # |P_E - P_W| < 이 값이면 회전 없음 (데드존)
+  Kp_rot_deg = 0.08       # [deg/압력차] 불균형 1당 회전량. 적응적으로 크기 결정
+  min_rot_deg = 0.15      # 최소 회전 (도). 불균형이 작아도 이만큼은 돌림
+  max_rot_deg = 1.2       # 스텝당 최대 회전 (도)
 
   # === Z(수직) P 제어: 목표 압력 유지. 계속 올라가면 z_direction_sign = -1 로 방향 반전 시도 ===
   base_d_z_m = 0.001      # 기준 Z 스텝 [m]
@@ -130,15 +133,6 @@ def main():
     pressure_threshold = 5.0   # 이 값 이하는 0으로 필터
     z_tolerance = 1.5          # |평균압력 - target| < 이 값이면 Z 유지 (넓히면 올라감/내려감 덜 함)
 
-    # ---------- 회전: P_E, P_W 경향(연속 횟수)으로 방향 결정 ----------
-    # P_E↑ 또는 P_W↓ 경향 → 반시계(CCW).  P_E↓ 또는 P_W↑ 경향 → 시계(CW)
-    trend_count_threshold = 2  # 이 횟수 넘으면 경향으로 판단 → 회전
-    prev_P_E, prev_P_W = None, None
-    P_E_up_count = 0
-    P_E_down_count = 0
-    P_W_up_count = 0
-    P_W_down_count = 0
-
     while 1:
         # Get pressure data
         rospy.sleep(0.05)  # Small delay to allow pressure data to update
@@ -162,40 +156,17 @@ def main():
         pressure_diff = abs(pressure_mean - target_pressure)
         pressure_error = target_pressure - pressure_mean   # 양수: 압력 부족(내려감), 음수: 압력 과다(올라감)
 
-        # ---------- 회전: P_E·P_W 둘 다 고려. P_E↑ 또는 P_W↓ → 반시계, P_E↓ 또는 P_W↑ → 시계 ----------
-        if prev_P_E is not None:
-            if P_E > prev_P_E:
-                P_E_up_count += 1
-                P_E_down_count = 0
-            elif P_E < prev_P_E:
-                P_E_down_count += 1
-                P_E_up_count = 0
-            else:
-                P_E_up_count = 0
-                P_E_down_count = 0
-        if prev_P_W is not None:
-            if P_W > prev_P_W:
-                P_W_up_count += 1
-                P_W_down_count = 0
-            elif P_W < prev_P_W:
-                P_W_down_count += 1
-                P_W_up_count = 0
-            else:
-                P_W_up_count = 0
-                P_W_down_count = 0
-        prev_P_E, prev_P_W = P_E, P_W
-
-        ccw_signal = (P_E_up_count >= trend_count_threshold) or (P_W_down_count >= trend_count_threshold)
-        cw_signal = (P_E_down_count >= trend_count_threshold) or (P_W_up_count >= trend_count_threshold)
-        if ccw_signal and not cw_signal:
-            align_direction = 1   # 반시계 (CCW)
-            rotation_angle_deg = max_rot_deg
-        elif cw_signal and not ccw_signal:
-            align_direction = -1  # 시계 (CW)
-            rotation_angle_deg = max_rot_deg
-        else:
+        # ---------- 회전: 현재 불균형으로 방향·크기 결정 (회전 → 그 결과로 P_E↑/P_W↓ 또는 P_E↓/P_W↑) ----------
+        # P_E - P_W < 0 → 동쪽 낮음 → CCW 돌려서 P_E↑/P_W↓ 되게.  P_E - P_W > 0 → 서쪽 낮음 → CW 돌려서 P_E↓/P_W↑ 되게
+        P_diff = P_E - P_W
+        if abs(P_diff) < align_tolerance:
             align_direction = 0
             rotation_angle_deg = 0.0
+        else:
+            # 방향: 동쪽(P_E)이 낮으면 CCW(1), 서쪽(P_W)이 낮으면 CW(-1)
+            align_direction = 1 if P_diff < 0 else -1   # P_diff<0 → CCW, P_diff>0 → CW
+            rotation_angle_deg = Kp_rot_deg * abs(P_diff)
+            rotation_angle_deg = np.clip(rotation_angle_deg, min_rot_deg, max_rot_deg)
         rotation_angle_rad = abs(rotation_angle_deg) * (np.pi / 180.0)
 
         # Lateral: 고정 (오른쪽으로)
@@ -244,7 +215,7 @@ def main():
         current_y = currentPose.pose.position.y
        
         # Debug print (P_E 경향: up/down count, 회전은 도 단위)
-        print(f"Y: {current_y:.5f} | P_E: {P_E:.2f} E↑#{P_E_up_count} E↓#{P_E_down_count} | P_W: {P_W:.2f} W↑#{P_W_up_count} W↓#{P_W_down_count} | Rot: {rotation_angle_deg:.4f}deg dir {align_direction} | Mean: {pressure_mean:.2f} Z: {z_direction} {step_z_mag*1000:.3f}mm")
+        print(f"Y: {current_y:.5f} | P_E: {P_E:.2f} P_W: {P_W:.2f} P_diff: {P_diff:.2f} | Rot: {rotation_angle_deg:.4f}deg dir {align_direction} | Mean: {pressure_mean:.2f} Z: {z_direction} {step_z_mag*1000:.3f}mm")
 
 
         if rospy.is_shutdown():
