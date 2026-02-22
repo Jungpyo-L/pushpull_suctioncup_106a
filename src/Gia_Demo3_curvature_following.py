@@ -54,14 +54,21 @@ def main():
   # Setup helper functions
   rtde_help = rtdeHelp(125)
   # adaptMotionHelp: dw는 생성 시 도(deg)로 넘기며 내부에서 rad로 저장됨. 루프 내에서는 매 스텝 각도(rad)를 설정함.
-  adaptHelp = adaptMotionHelp(d_lat=0.0010, dw=0.3, d_z=0.0010)
+  adaptHelp = adaptMotionHelp(d_lat=0.0005, dw=0.4, d_z=0.0010)
 
+<<<<<<< HEAD
   # === 회전: 현재 불균형(P_E-P_W)으로 방향·크기 결정 → 회전이 원인, 압력 변화가 결과 ===
   # 반시계(CCW) 돌리면 → P_E↑ 또는 P_W↓ 되는 쪽. 시계(CW) 돌리면 → P_E↓ 또는 P_W↑
   align_tolerance = 2.0   # |P_E - P_W| < 이 값이면 회전 없음 (데드존)
   Kp_rot_deg = 0.08       # [deg/압력차] 불균형 1당 회전량. 적응적으로 크기 결정
   min_rot_deg = 0.15      # 최소 회전 (도). 불균형이 작아도 이만큼은 돌림
   max_rot_deg = 1.2       # 스텝당 최대 회전 (도)
+=======
+  # === 회전 P 제어 (적응형, 안전을 위해 모든 각도는 도(deg) 단위로 설정 후 rad로만 변환) ===
+  Kp_rot_deg = 0.03       # [deg/압력차] P_E-P_W 1당 회전량 (도). 작을수록 부드러움
+  max_rot_deg = 3       # 스텝당 최대 회전 각도 (도). 실험 안전용 상한
+  min_rot_deg = 0.05      # 이 값 미만이면 회전 없음 (데드존, 흔들림 방지)
+>>>>>>> 4086cde447ece0d86346e23e9fb1f3a12d0e53a8
 
   # === Z(수직) P 제어: 목표 압력 유지. 계속 올라가면 z_direction_sign = -1 로 방향 반전 시도 ===
   base_d_z_m = 0.001      # 기준 Z 스텝 [m]
@@ -91,7 +98,7 @@ def main():
 
 
   # Set the pose A
-  positionA = [0.51010, 0.-0.08520, 0.03163]  # Starting position
+  positionA = [0.51008, 0.-0.07210, 0.03875]  # Starting position
 #   positionA = [0.58678, 0.01299, 0.02846]  # Starting position
 
   positionA_y_end = (0.01299 - 0.08)  # Target y position (10cm from start: 0.02501 + 0.08 = 0.10501)
@@ -129,7 +136,7 @@ def main():
 
 
     # Z축 목표 압력 유지. 모자라면 내려가고, 많으면 올라감
-    target_pressure = 8.0
+    target_pressure = 15.0
     pressure_threshold = 5.0   # 이 값 이하는 0으로 필터
     z_tolerance = 1.5          # |평균압력 - target| < 이 값이면 Z 유지 (넓히면 올라감/내려감 덜 함)
 
@@ -262,5 +269,4 @@ def main():
 
 if __name__ == '__main__':
   main()
-
 
