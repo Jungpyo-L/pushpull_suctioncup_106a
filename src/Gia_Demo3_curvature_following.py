@@ -129,11 +129,12 @@ def main():
     pressure_threshold = 5.0   # 이 값 이하는 0으로 필터
     z_tolerance = 1.0          # |평균압력 - target| < 이 값이면 Z 유지
 
-    # ---------- 회전: P_E 경향(증가/감소 연속 횟수)으로 방향 결정 ----------
-    trend_count_threshold = 2  # 이 횟수 넘으면 경향으로 판단 → 방향 전환
-    prev_P_E = None
-    P_E_up_count = 0    # P_E가 연속으로 커진 횟수
-    P_E_down_count = 0  # P_E가 연속으로 작아진 횟수
+    # ---------- 회전: (P_E - P_W) 경향으로 방향 결정 ----------
+    # P_E - P_W가 커지는 경향 → 시계(CW).  P_E - P_W가 작아지는 경향 → 반시계(CCW)
+    trend_count_threshold = 2  # 연속 이 횟수 넘으면 경향으로 판단
+    prev_P_diff = None
+    P_diff_up_count = 0    # (P_E - P_W)가 연속으로 커진 횟수 → CW
+    P_diff_down_count = 0  # (P_E - P_W)가 연속으로 작아진 횟수 → CCW
 
     while 1:
         # Get pressure data
@@ -158,24 +159,25 @@ def main():
         pressure_diff = abs(pressure_mean - target_pressure)
         pressure_error = target_pressure - pressure_mean   # 양수: 압력 부족(내려감), 음수: 압력 과다(올라감)
 
-        # ---------- 회전: P_E가 커지는 경향(연속 3회↑) → 반시계, 작아지는 경향(연속 3회↓) → 시계 ----------
-        if prev_P_E is not None:
-            if P_E > prev_P_E:
-                P_E_up_count += 1
-                P_E_down_count = 0
-            elif P_E < prev_P_E:
-                P_E_down_count += 1
-                P_E_up_count = 0
+        # ---------- 회전: (P_E - P_W) 커지는 경향 → 시계, 작아지는 경향 → 반시계 ----------
+        P_diff = P_E - P_W
+        if prev_P_diff is not None:
+            if P_diff > prev_P_diff:
+                P_diff_up_count += 1
+                P_diff_down_count = 0
+            elif P_diff < prev_P_diff:
+                P_diff_down_count += 1
+                P_diff_up_count = 0
             else:
-                P_E_up_count = 0
-                P_E_down_count = 0
-        prev_P_E = P_E
+                P_diff_up_count = 0
+                P_diff_down_count = 0
+        prev_P_diff = P_diff
 
-        if P_E_up_count >= trend_count_threshold:
-            align_direction = 1   # 반시계 (CCW)
+        if P_diff_up_count >= trend_count_threshold:
+            align_direction = -1  # 시계 (CW): P_E-P_W 커지는 경향
             rotation_angle_deg = max_rot_deg
-        elif P_E_down_count >= trend_count_threshold:
-            align_direction = -1  # 시계 (CW)
+        elif P_diff_down_count >= trend_count_threshold:
+            align_direction = 1   # 반시계 (CCW): P_E-P_W 작아지는 경향
             rotation_angle_deg = max_rot_deg
         else:
             align_direction = 0
@@ -220,7 +222,7 @@ def main():
         current_y = currentPose.pose.position.y
        
         # Debug print (P_E 경향: up/down count, 회전은 도 단위)
-        print(f"Y: {current_y:.5f} | P_E: {P_E:.2f}, P_W: {P_W:.2f} | up#{P_E_up_count} down#{P_E_down_count} | Rot: {rotation_angle_deg:.4f}deg dir {align_direction} | Mean: {pressure_mean:.2f}, err: {pressure_error:.2f} | Z: {z_direction} step {step_z_m*1000:.3f}mm")
+        print(f"Y: {current_y:.5f} | P_E: {P_E:.2f} P_W: {P_W:.2f} P_diff: {P_diff:.2f} | diff↑#{P_diff_up_count} diff↓#{P_diff_down_count} | Rot: {rotation_angle_deg:.4f}deg dir {align_direction} | Mean: {pressure_mean:.2f} Z: {z_direction} {abs(step_z_m)*1000:.3f}mm")
 
 
         if rospy.is_shutdown():
