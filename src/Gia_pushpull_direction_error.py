@@ -56,18 +56,16 @@ def main(args):
     # === 초기 disengage position 설정 ===
     # chamber 위치에 따라 기준 변경 (아래 조건은 첫번째 코드와 동일)
     if args.corner == 180:
-        disengagePosition_init = [0.6092, -.275, 0.0180]
+        disengagePosition_init = [0.6672, -.236, 0.0545] #35mm=0.035m --> 0.035+0.0180=0.053m
     elif args.corner == 270:
-        disengagePosition_init = [0.555, 0.100, 0.0170]
+        disengagePosition_init = [0.555, 0.100, 0.0170] #25mm=0.025m --> 0.025+0.0170=0.042m
     elif args.corner == 90:
-        disengagePosition_init = [0.6165, -.2258, 0.0170]
+        disengagePosition_init = [0.6165, -.2258, 0.0170] #30mm=0.03m --> 0.03+0.0170=0.047m    
     args.disengagePosition_init = disengagePosition_init
 
     # ch별 중심 yaw 기준 오프셋 적용
     if args.ch == 3: default_yaw = pi/2 - 60*pi/180
-    # if args.ch == 4: default_yaw = pi/2 - 45*pi/180
-    if args.ch == 4: default_yaw = pi/2 - 45*pi/180 + 45*pi/180
-
+    if args.ch == 4: default_yaw = pi/2 - 45*pi/180
     if args.ch == 5: default_yaw = pi/2 - 90*pi/180
     if args.ch == 6: default_yaw = pi/2 - 60*pi/180
 
@@ -77,6 +75,7 @@ def main(args):
     try:
         input("Press <Enter> to go DisengagePose")
         rtde_help.goToPose(disEngagePose)
+        rospy.sleep(0.1)
         P_help.startSampling(); rospy.sleep(1)
         FT_help.setNowAsBias()
         P_help.setNowAsOffset()
@@ -105,6 +104,7 @@ def main(args):
                 F_normal = FT_help.averageFz_noOffset
             engage_z = rtde_help.getCurrentPose().pose.position.z
             rtde_help.goToPose(disEngagePose)
+            rospy.sleep(0.1)
             with open(file_help.ResultSavingDirectory+'/engage_z.p', 'wb') as f:
                 pickle.dump(engage_z, f)
 
@@ -113,8 +113,9 @@ def main(args):
         SuctionFlag = False
 
         # ====== xoffset(0, 3, 6) 반복 ======
-        xoffsets = [0, 3, 6]
+        xoffsets = [-4,-3,-2,-1,0,1,2,3,4,5,6]
         for j in xoffsets:
+            args.xoffset = j
             disengagePosition = copy.deepcopy(disengagePosition_init)
             disengagePosition[0] += j*0.001
             engagePosition = copy.deepcopy(disengagePosition)
@@ -127,24 +128,27 @@ def main(args):
                     continue
                 startAngleFlag = False
 
-                # Disengage Pose 이동: chamber와 yaw 기준 포함(첫번째 코드와 같음)
+                # Disengage Pose 이동: chamber와 yaw 기준 포함
                 targetOrientation = tf.transformations.quaternion_from_euler(default_yaw - 15*pi/180*i, pi, 0, 'szxy')
-                targetPose_init = rtde_help.getPoseObj(disengagePosition, targetOrientation)
-                rtde_help.goToPose(targetPose_init)
+                targetPose = rtde_help.getPoseObj(disengagePosition, targetOrientation)
+                targetPose_init = targetPose
+                rtde_help.goToPose(targetPose)
 
                 # 흡착 OFF로 pushpull 설정 (메시지 타입은 pushpull_suctioncup_106a/PushPull)
                 msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_0
                 PushPull_pub.publish(msg)
                 syncPub.publish(SYNC_RESET)
+                rospy.sleep(0.1)
 
                 # 센서 샘플링/오프셋
-                P_help.startSampling(); rospy.sleep(0.3)
+                P_help.startSampling()
+                rospy.sleep(0.3)
                 P_help.setNowAsOffset()
 
-                # Engage Pose 이동 및 2초 대기, 흡착 ON
+                # Engage Pose 이동 및 흡착 ON
+                targetOrientation = tf.transformations.quaternion_from_euler(default_yaw - 15*pi/180*i, pi, 0, 'szxy')
                 targetPose = rtde_help.getPoseObj(engagePosition, targetOrientation)
                 rtde_help.goToPose(targetPose)
-                rospy.sleep(2.0) ####
                 msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_100
                 PushPull_pub.publish(msg)
 
@@ -152,16 +156,16 @@ def main(args):
                 dataLoggerEnable(True)
                 rospy.sleep(0.2)
                 syncPub.publish(SYNC_START)
-                rospy.sleep(5)
+                rospy.sleep(1)
 
                 # 데이터 취득 (압력, 힘, vacuum 값)
                 P_init = P_help.four_pressure
                 F_normal = FT_help.averageFz_noOffset
                 args.normalForceActual = F_normal
                 args.pressure_avg = P_init
-                P_vac = P_help.P_vac
+                P_vac = abs(P_help.P_vac)  # gauge pressure이므로 절대값 사용 (음수→양수)
 
-                if all(np.array(P_init) < P_vac) and i == 0:
+                if all(np.array(P_init) < -P_vac) and i == 0:
                     SuctionFlag = True
                 else:
                     SuctionFlag = False
@@ -175,7 +179,10 @@ def main(args):
                 rospy.sleep(0.1)
                 dataLoggerEnable(False)
                 file_help.saveDataParams(args,
-                    appendTxt=f'Gia_lateral_corner_{args.corner}_xoffset_{j}_theta_{args.theta}_material_{args.material}')
+                    appendTxt=f'Gia_lateral_deformation_{args.deformation}_corner_{args.corner}_xoffset_{j}_theta_{args.theta}_material_{args.material}')
+                
+            
+
                 file_help.clearTmpFolder()
                 P_help.stopSampling()
                 rospy.sleep(0.1)
@@ -187,7 +194,12 @@ def main(args):
                     rtde_help.goToPose(targetPose)
 
         # ===== 실험 종료 및 뒷정리 =====
+        print("Go to disengage point")
+        setOrientation = tf.transformations.quaternion_from_euler(pi/2,pi,0,'szxy')
+        disEngagePose = rtde_help.getPoseObj(disengagePosition_init, setOrientation)
         rtde_help.goToPose(disEngagePose)
+        rospy.sleep(0.3)
+        
         dataLoggerEnable(False)
         P_help.stopSampling()
         msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
@@ -204,7 +216,7 @@ if __name__ == "__main__":
     parser.add_argument('--angle', type=int, default=360)
     parser.add_argument('--startAngle', type=int, default=0)
     parser.add_argument('--normalForce', type=float, default=1.5)
-    parser.add_argument('--deformation', type=float, default=5.0)
+    parser.add_argument('--deformation', type=float, default=1.0)
     parser.add_argument('--zHeight', type=bool, default=True)
     parser.add_argument('--ch', type=int, default=4)
     parser.add_argument('--corner', type=int, default=180)
