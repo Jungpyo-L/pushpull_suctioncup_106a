@@ -257,24 +257,21 @@ def main(args):
             file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_pull_material_{args.material}_xoffset_{xoffset_val}_failed')
             file_help.clearTmpFolder()
             
-            # Set PULL_STATE to OFF_STATE (0)
+            # Keep Pull ON. Move 15cm up in Z from current position (no offset).
+            lift_up_m = 0.15  # 15cm
+            positionLift = [currentPose_timeout.pose.position.x,
+                            currentPose_timeout.pose.position.y,
+                            currentPose_timeout.pose.position.z + lift_up_m]
+            poseLift_timeout = rtde_help.getPoseObj(positionLift, currentOrientation_timeout)
+            print(f"Moving 15cm up in Z from current position: {positionLift}")
+            rtde_help.goToPose(poseLift_timeout, speed=0.1, acc=0.1)
+            rospy.sleep(1)
+            
+            # Then turn off pull and exit
             print("Turning off pull...")
             msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
             PushPull_pub.publish(msg)
             rospy.sleep(0.1)
-            
-            # === Move to position offset from positionA (x-15cm, y+15cm, z+10cm) ===
-            # offset_distance = 0.15  # 15cm in meters
-            # positionOffset = [positionA[0] - offset_distance, 
-            #                  positionA[1] + offset_distance, 
-            #                  positionA[2] + 0.10]
-            # poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-            # print(f"Moving to offset position from positionA: {positionOffset}")
-            # rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
-            # rospy.sleep(1)
-            # print("Reached offset position")
-            
-            # Stop pressure sampling and exit
             P_help.stopSampling()
             print("============ Python UR_Interface demo complete!")
             return
@@ -306,13 +303,7 @@ def main(args):
             rtde_help.stopAtCurrPoseAdaptive()
             rospy.sleep(0.5)  # Wait longer for servoL to fully stop
             
-            # Turn off pull (PULL_STATE to OFF_STATE)
-            print("Turning off pull...")
-            msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
-            PushPull_pub.publish(msg)
-            rospy.sleep(0.2)
-            # Save current end effector position (like positionA)
-            
+            # Keep Pull ON. Save current end effector position (like positionA)
             currentPose_at_grasp = rtde_help.getCurrentPose()
             positionGrasp = [currentPose_at_grasp.pose.position.x, 
                              currentPose_at_grasp.pose.position.y, 
@@ -354,15 +345,8 @@ def main(args):
             file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_pull_material_{args.material}_xoffset_{xoffset_val}_success')
             file_help.clearTmpFolder()
             print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
-            input("Press <Enter> to go to offset position...")
 
-            # === Switch from servoL to moveL mode before moving to offset ===
-            # First, stop servoL mode
-            rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait for servoL to fully stop
-            
-            # Get current pose and switch to moveL mode by moving to current position
-            # This ensures RTDE control script is running in moveL mode
+            # === Switch to moveL, then 15cm up in Z from current position (no offset) ===
             currentPose_switch = rtde_help.getCurrentPose()
             currentPosition_switch = [currentPose_switch.pose.position.x,
                                       currentPose_switch.pose.position.y,
@@ -372,105 +356,24 @@ def main(args):
                                          currentPose_switch.pose.orientation.z,
                                          currentPose_switch.pose.orientation.w]
             poseCurrent = rtde_help.getPoseObj(currentPosition_switch, currentOrientation_switch)
-            
-            # Move to current position using moveL to activate control script in moveL mode
             print("Switching to moveL mode...")
             rtde_help.goToPose(poseCurrent, speed=0.1, acc=0.1)
-            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
+            rospy.sleep(0.5)
 
-            # === Move to position offset from positionA (x+15cm, y+15cm) ===
-            offset_distance = 0.15  # 15cm in meters
-            positionOffset = [positionA[0] - offset_distance, 
-                             positionA[1] + offset_distance, 
-                             positionA[2] + 0.10]
-            poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-            print(f"Moving to offset position from positionA: {positionOffset}")
-            rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
-            rospy.sleep(1)
-            
-            # Wait for user to press Enter at offset position
-            input("Press <Enter> to return to positionGrasp...")
-            
-            # === Ensure we're in moveL mode before returning to positionGrasp ===
-            # Get current pose and ensure moveL mode is active
-            currentPose_before_return = rtde_help.getCurrentPose()
-            currentPosition_before_return = [currentPose_before_return.pose.position.x,
-                                             currentPose_before_return.pose.position.y,
-                                             currentPose_before_return.pose.position.z]
-            currentOrientation_before_return = [currentPose_before_return.pose.orientation.x,
-                                                currentPose_before_return.pose.orientation.y,
-                                                currentPose_before_return.pose.orientation.z,
-                                                currentPose_before_return.pose.orientation.w]
-            poseCurrent_before_return = rtde_help.getPoseObj(currentPosition_before_return, currentOrientation_before_return)
-            
-            # Move to current position using moveL to ensure control script is ready
-            print("Ensuring moveL mode is active...")
-            rtde_help.goToPose(poseCurrent_before_return, speed=0.1, acc=0.1)
-            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
-            
-            # === Return to positionGrasp ===
-            # Get orientation from currentPose_at_grasp
-            orientationGrasp = [currentPose_at_grasp.pose.orientation.x,
-                               currentPose_at_grasp.pose.orientation.y,
-                               currentPose_at_grasp.pose.orientation.z,
-                               currentPose_at_grasp.pose.orientation.w]
-            poseGrasp = rtde_help.getPoseObj(positionGrasp, orientationGrasp)
-            print(f"Returning to positionGrasp: {positionGrasp}")
-            rtde_help.goToPose(poseGrasp, speed=0.1, acc=0.1)
-            rospy.sleep(1.5)  # Wait longer for moveL to complete
-            
-            # Wait 1 second at positionGrasp
-            print("Waiting 1 second at positionGrasp...")
-            rospy.sleep(1.0)
-            
-            # === Grasp: switch to PULL and hold suction for 3 seconds ===
-            # Read current position (already at positionGrasp with deformation applied at start)
-            currentPose = rtde_help.getCurrentPose()
-            print(f"Current position at grasp: Z={currentPose.pose.position.z:.6f}m")
-            
-            print("Switching to PULL state for grasp...")
-            msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
-            PushPull_pub.publish(msg)
-            rospy.sleep(3.0)
-
-            # === Lift: use moveL to move up by deformation + extra 20cm ===
-            # Read current position (at positionGrasp)
-            currentPose_after_deform = rtde_help.getCurrentPose()
-            
-            # Get deformation argument (mm) and convert to meters
-            deformation_mm = getattr(args, "deformation", 3.0)
-            deformation_m = deformation_mm * 1e-3
-            
-            # Move up by deformation distance + extra lift (20cm)
-            extra_lift = 0.20  # 20cm
-            total_lift = deformation_m + extra_lift
-            
-            # Calculate target position (move up by total_lift)
-            target_position_lift = [currentPose_after_deform.pose.position.x,
-                                   currentPose_after_deform.pose.position.y,
-                                   currentPose_after_deform.pose.position.z + total_lift]
-            target_orientation_lift = [currentPose_after_deform.pose.orientation.x,
-                                      currentPose_after_deform.pose.orientation.y,
-                                      currentPose_after_deform.pose.orientation.z,
-                                      currentPose_after_deform.pose.orientation.w]
-            poseLift = rtde_help.getPoseObj(target_position_lift, target_orientation_lift)
-            
-            print(f"Lifting: {total_lift*1000:.1f}mm (upward) from Z={currentPose_after_deform.pose.position.z:.6f}m")
-            
-            # Use moveL to move up (single smooth motion instead of steps)
+            # Keep Pull ON. Move 15cm up in Z from current position.
+            lift_up_m = 0.15  # 15cm
+            positionLift = [currentPose_switch.pose.position.x,
+                            currentPose_switch.pose.position.y,
+                            currentPose_switch.pose.position.z + lift_up_m]
+            poseLift = rtde_help.getPoseObj(positionLift, currentOrientation_switch)
+            print(f"Moving 15cm up in Z from current position: {positionLift}")
             rtde_help.goToPose(poseLift, speed=0.1, acc=0.1)
-            rospy.sleep(1.5)  # Wait longer for motion to complete
-            
-            final_z_lift = rtde_help.getCurrentPose().pose.position.z
-            print(f"Final Z after lift: {final_z_lift:.6f}m")
+            rospy.sleep(1.5)
 
-            # Stop suction (OFF_STATE) before finishing
             print("Stopping suction (OFF_STATE)...")
             msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
             PushPull_pub.publish(msg)
             rospy.sleep(0.1)
-            
-            # Stop pressure sampling and finish
             P_help.stopSampling()
             print("============ Python UR_Interface demo complete!")
             return
