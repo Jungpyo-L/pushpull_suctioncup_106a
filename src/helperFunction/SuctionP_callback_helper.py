@@ -42,8 +42,23 @@ class P_CallbackHelp(object):
         self.sensorCMD_Pub.publish(self.msg2Sensor)
     
     def stopSampling(self):
+        # Stop relay publishes before IDLE / unregister so shutdown races do not
+        # call publish() on an already-closed topic.
+        self.publish_enabled = False
+        rospy.sleep(0.05)
         self.msg2Sensor.cmdInput = self.IDLE_CMD
-        self.sensorCMD_Pub.publish(self.msg2Sensor)
+        try:
+            self.sensorCMD_Pub.publish(self.msg2Sensor)
+        except rospy.ROSException:
+            pass
+        try:
+            self.callback_Pub.unregister()
+        except Exception:
+            pass
+        try:
+            self.sub.unregister()
+        except Exception:
+            pass
 
     def setNowAsOffset(self):
         self.PressureOffset *= 0
@@ -71,10 +86,13 @@ class P_CallbackHelp(object):
             buffer_np = np.array(self.PressureBuffer)
             averagePres = np.mean(buffer_np, axis=0)
             self.four_pressure = averagePres.tolist()
-            if self.publish_enabled:
+            if self.publish_enabled and not rospy.is_shutdown():
                 self.callback_Pressure.ch   = self.Psensor_Num
                 self.callback_Pressure.data = self.four_pressure
-                self.callback_Pub.publish(self.callback_Pressure)
+                try:
+                    self.callback_Pub.publish(self.callback_Pressure)
+                except rospy.ROSException:
+                    self.publish_enabled = False
         if self.startPresPWMAvg:
             averagePresPWM = np.zeros(self.Psensor_Num, dtype=float)
             fs   = self.samplingF

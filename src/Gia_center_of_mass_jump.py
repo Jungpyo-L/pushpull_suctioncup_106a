@@ -141,6 +141,7 @@ def main(args):
     xy_acc = float(getattr(args, "haptic_xy_acc", 0.12))
     max_iters = int(getattr(args, "haptic_max_iters", 80))
     min_lat_m = float(getattr(args, "haptic_min_lateral_mm", 0.25)) * 1e-3
+    min_bal_L1 = float(getattr(args, "haptic_min_balanced_l1", 25.0))
 
     probe_z_m = probe_z_mm * 1e-3
     step_xy_m = step_xy_mm * 1e-3
@@ -148,6 +149,7 @@ def main(args):
 
     data_positions = []
     data_gradients = []
+    data_gradients_bal = []
     data_weights = []
     data_pressure_before = []
     data_pressure_top = []
@@ -164,6 +166,13 @@ def main(args):
     dataLoggerEnable(True)
     rospy.sleep(0.2)
 
+    print(
+      "COM haptic: grad[i]=p_top[i]-p_before[i] (raw). "
+      "grad_bal=grad-mean(grad) removes common Z effect. "
+      "w=|grad_bal|/sum|grad_bal|; dx=s*(w0-w2), dy=s*(w1-w3). "
+      "Stop if sum|grad_bal| < %.1f OR max(w)-min(w) < %.3f OR |dxy| tiny."
+      % (min_bal_L1, flat_ptp)
+    )
     print("COM haptic: publishing PULL_STATE (suction on for probe); starting Z-probe loop.")
     msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
     PushPull_pub.publish(msg)
@@ -174,6 +183,7 @@ def main(args):
       rospy.sleep(0.1)
       args.data_com_positions = np.array(data_positions, dtype=float)
       args.data_com_gradients = np.array(data_gradients, dtype=float)
+      args.data_com_gradients_balanced = np.array(data_gradients_bal, dtype=float)
       args.data_com_weights = np.array(data_weights, dtype=float)
       args.data_com_pressure_before = np.array(data_pressure_before, dtype=float)
       args.data_com_pressure_top = np.array(data_pressure_top, dtype=float)
@@ -219,15 +229,18 @@ def main(args):
       rospy.sleep(1.0)
 
       grad = p_top - p_before
-      s_abs = float(np.sum(np.abs(grad)))
-      if s_abs < 1e-12:
+      grad_bal = grad - np.mean(grad)
+      s_bal = float(np.sum(np.abs(grad_bal)))
+
+      if s_bal < 1e-12:
         w = np.ones(4, dtype=float) / 4.0
       else:
-        w = np.abs(grad) / s_abs
+        w = np.abs(grad_bal) / s_bal
 
       ts = rospy.Time.now().to_sec() - timestamp_start_time
       data_positions.append(pos)
       data_gradients.append(grad.tolist())
+      data_gradients_bal.append(grad_bal.tolist())
       data_weights.append(w.tolist())
       data_pressure_before.append(p_before.tolist())
       data_pressure_top.append(p_top.tolist())
@@ -241,29 +254,31 @@ def main(args):
       lat_mag = float(np.hypot(dx_m, dy_m))
 
       print(
-        "[COM %d] xyz=(%.4f,%.4f,%.4f) grad=%s w=%s dxy_mm=(%.3f,%.3f)"
+        "[COM %d] sum|grad_bal|=%.2f grad=%s grad_bal=%s w=%s dxy_mm=(%.3f,%.3f)"
         % (
           it,
-          pos[0],
-          pos[1],
-          pos[2],
-          np.round(grad, 3),
+          s_bal,
+          np.round(grad, 2),
+          np.round(grad_bal, 2),
           np.round(w, 3),
           dx_m * 1e3,
           dy_m * 1e3,
         )
       )
 
+      weak_bal = s_bal < min_bal_L1
       flat_weights = float(np.max(w) - np.min(w)) < flat_ptp
       tiny_move = lat_mag < min_lat_m
 
       # No useful lateral update => hold XY, PULL, +Z final lift
-      if flat_weights or tiny_move:
+      if weak_bal or flat_weights or tiny_move:
         data_xy_steps_mm.append([0.0, 0.0])
-        if flat_weights and tiny_move:
-          why = "flat weights and tiny |dxy|"
+        if weak_bal and flat_weights and tiny_move:
+          why = "weak balanced + flat w + tiny |dxy|"
+        elif weak_bal:
+          why = "weak asymmetry sum|grad_bal| < %.1f (near COM / common-mode)" % min_bal_L1
         elif flat_weights:
-          why = "flat weights (max(w)-min(w) < %.4f)" % flat_ptp
+          why = "flat w (max(w)-min(w) < %.4f)" % flat_ptp
         else:
           why = "tiny move (|dxy| < %.3f mm)" % (min_lat_m * 1e3)
         print("Converged (%s): hold XY, PULL, +Z %.1f mm" % (why, final_lift_mm))
@@ -315,10 +330,11 @@ if __name__ == '__main__':
   parser.add_argument('--haptic_probe_z_mm', type=float, default=10.0, help='Fast Z probe height (mm, +base Z)')
   parser.add_argument('--haptic_z_probe_speed', type=float, default=1.5, help='RTDE moveL TCP linear speed for Z probe (m/s)')
   parser.add_argument('--haptic_z_probe_acc', type=float, default=1.5, help='RTDE moveL TCP linear accel for Z probe (m/s^2)')
-  parser.add_argument('--haptic_step_xy_mm', type=float, default=10.0, help='Scale s (mm): dx=s*(w0-w2), dy=s*(w1-w3), w=|grad|/sum|grad|')
+  parser.add_argument('--haptic_step_xy_mm', type=float, default=10.0, help='Scale s (mm) in dx=s*(w0-w2), dy=s*(w1-w3); w from |grad_bal|/sum|grad_bal|')
   parser.add_argument('--haptic_final_lift_mm', type=float, default=50.0, help='Z lift after convergence (mm)')
-  parser.add_argument('--haptic_flat_weight_ptp', type=float, default=0.11, help='Converge if max(w)-min(w) < this')
-  parser.add_argument('--haptic_min_lateral_mm', type=float, default=0.25, help='Converge if hypot(dx,dy) below this (mm)')
+  parser.add_argument('--haptic_flat_weight_ptp', type=float, default=0.11, help='Stop if max(w)-min(w) < this (w from balanced gradient)')
+  parser.add_argument('--haptic_min_balanced_l1', type=float, default=25.0, help='Stop if sum|grad-mean(grad)| below this (pressure units); no asymmetry')
+  parser.add_argument('--haptic_min_lateral_mm', type=float, default=0.25, help='Stop if hypot(dx,dy) below this (mm)')
   parser.add_argument('--haptic_max_iters', type=int, default=80, help='Safety cap on search iterations')
 
   cli_args = parser.parse_args()
