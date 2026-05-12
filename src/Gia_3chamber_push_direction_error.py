@@ -112,7 +112,7 @@ def main(args):
         startAngleFlag = True
         SuctionFlag = False
 
-        # ====== xoffset(0, 3, 6) 반복 ======
+        # ====== xoffset ======
         xoffsets = [-4,-3,-2,-1,0,1,2,3,4,5,6]
         for j in xoffsets:
             args.xoffset = j
@@ -179,7 +179,7 @@ def main(args):
                 rospy.sleep(0.1)
                 dataLoggerEnable(False)
                 file_help.saveDataParams(args,
-                    appendTxt=f'Gia_lateral_deformation_{args.deformation}_corner_{args.corner}_xoffset_{j}_theta_{args.theta}_material_{args.material}')
+                    appendTxt=f'Gia_lateral_deformation_{args.deformation}_xoffset_{j}_theta_{args.theta}')
                 
             
 
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     parser.add_argument('--normalForce', type=float, default=1.5)
     parser.add_argument('--deformation', type=float, default=1.0)
     parser.add_argument('--zHeight', type=bool, default=True)
-    parser.add_argument('--ch', type=int, default=4)
+    parser.add_argument('--ch', type=int, default=3)
     parser.add_argument('--corner', type=int, default=180)
     parser.add_argument('--material', type=int, default=0)
     args = parser.parse_args()
