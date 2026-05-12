@@ -132,6 +132,7 @@ def main(args):
 
     # --- Haptic center-of-mass search (4ch pressure, Z-probe gradient) ---
     probe_z_mm = float(getattr(args, "haptic_probe_z_mm", 10.0))
+    push_hold_above_mm = float(getattr(args, "haptic_push_hold_above_mm", 3.0))
     step_xy_mm = float(getattr(args, "haptic_step_xy_mm", 10.0))
     final_lift_mm = float(getattr(args, "haptic_final_lift_mm", 50.0))
     flat_ptp = float(getattr(args, "haptic_flat_weight_ptp", 0.11))
@@ -144,6 +145,7 @@ def main(args):
     min_bal_L1 = float(getattr(args, "haptic_min_balanced_l1", 25.0))
 
     probe_z_m = probe_z_mm * 1e-3
+    hold_above_m = push_hold_above_mm * 1e-3
     step_xy_m = step_xy_mm * 1e-3
     final_lift_m = final_lift_mm * 1e-3
 
@@ -167,9 +169,12 @@ def main(args):
     rospy.sleep(0.2)
 
     print(
-      "COM haptic: grad[i]=p_top[i]-p_before[i] (raw). "
-      "grad_bal=grad-mean(grad) removes common Z effect. "
-      "w=|grad_bal|/sum|grad_bal|; dx=s*(w0-w2), dy=s*(w1-w3). "
+      "COM haptic: grad from p_top-p_before (Z apex vs start). "
+      "After apex: descend to startZ+%.1fmm (min of request & probe-0.5mm), PUSH 1s, OFF 1s, then start Z. "
+      "grad_bal=grad-mean(grad); w from |grad_bal|; dx=s*(w0-w2), dy=s*(w1-w3)."
+      % (push_hold_above_mm,)
+    )
+    print(
       "Stop if sum|grad_bal| < %.1f OR max(w)-min(w) < %.3f OR |dxy| tiny."
       % (min_bal_L1, flat_ptp)
     )
@@ -214,11 +219,15 @@ def main(args):
 
       p_before = _sample_four_pressure_avg(P_help)
 
-      # Fast +Z probe (base +Z), sample at top, return (almost instantaneous moveL)
+      # Fast +Z probe (base +Z), sample p_top at apex
       _go_delta_xyz(rtde_help, 0.0, 0.0, probe_z_m, z_fast_speed, z_fast_acc)
       rospy.sleep(0.02)
       p_top = _sample_four_pressure_avg(P_help)
-      _go_delta_xyz(rtde_help, 0.0, 0.0, -probe_z_m, z_fast_speed, z_fast_acc)
+
+      # Descend to (start Z + hold_above), not full contact: PUSH 1s, OFF 1s, then to start Z
+      effective_hold_m = min(hold_above_m, max(1e-4, probe_z_m - 0.5e-3))
+      dz_to_hold = effective_hold_m - probe_z_m
+      _go_delta_xyz(rtde_help, 0.0, 0.0, dz_to_hold, z_fast_speed, z_fast_acc)
       rospy.sleep(0.02)
 
       msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_100
@@ -227,6 +236,9 @@ def main(args):
       msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
       PushPull_pub.publish(msg)
       rospy.sleep(1.0)
+
+      _go_delta_xyz(rtde_help, 0.0, 0.0, -effective_hold_m, z_fast_speed, z_fast_acc)
+      rospy.sleep(0.02)
 
       grad = p_top - p_before
       grad_bal = grad - np.mean(grad)
@@ -328,6 +340,7 @@ if __name__ == '__main__':
   parser.add_argument('--xoffset', type=float, default=0, help='X offset (mm) subtracted from positionA x (see positionA_true)')
   parser.add_argument('--skip_pose_enter', action='store_true', help='Do not wait for Enter before move to pose A (use with care)')
   parser.add_argument('--haptic_probe_z_mm', type=float, default=10.0, help='Fast Z probe height (mm, +base Z)')
+  parser.add_argument('--haptic_push_hold_above_mm', type=float, default=3.0, help='After p_top: stop this many mm above cycle start Z for PUSH/OFF (capped by probe height)')
   parser.add_argument('--haptic_z_probe_speed', type=float, default=1.5, help='RTDE moveL TCP linear speed for Z probe (m/s)')
   parser.add_argument('--haptic_z_probe_acc', type=float, default=1.5, help='RTDE moveL TCP linear accel for Z probe (m/s^2)')
   parser.add_argument('--haptic_step_xy_mm', type=float, default=10.0, help='Scale s (mm) in dx=s*(w0-w2), dy=s*(w1-w3); w from |grad_bal|/sum|grad_bal|')
