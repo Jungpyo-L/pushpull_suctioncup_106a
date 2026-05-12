@@ -9,32 +9,50 @@ except:
   ros_enabled = False
 
 
-from calendar import month_abbr
 import os, sys
 import numpy as np
-import copy
-import time
 
 
-from netft_utils.srv import *
-from edg_ur10.srv import *
-from std_msgs.msg import Int8
 from pushpull_suctioncup_106a.msg import PushPull
 from suction_cup.srv import Enable
 
 
 from helperFunction.rtde_helper import rtdeHelp
-from helperFunction.adaptiveMotion import adaptMotionHelp
 from helperFunction.SuctionP_callback_helper import P_CallbackHelp
 from helperFunction.fileSaveHelper import fileSaveHelp
 
 
 
 
+def _sample_four_pressure_avg(P_help, n_samples=10, dt=0.012):
+  """Mean of last n_samples readings from four_pressure (4 channels)."""
+  vals = []
+  for _ in range(n_samples):
+    v = np.asarray(P_help.four_pressure, dtype=float).ravel()
+    if v.size < 4:
+      v = np.pad(v, (0, 4 - int(v.size)))
+    vals.append(v[:4].copy())
+    rospy.sleep(dt)
+  return np.mean(np.stack(vals, axis=0), axis=0)
+
+
+def _go_delta_xyz(rtde_help, dx, dy, dz, speed, acc):
+  cur = rtde_help.getCurrentPose()
+  p = [
+    cur.pose.position.x + dx,
+    cur.pose.position.y + dy,
+    cur.pose.position.z + dz,
+  ]
+  o = [
+    cur.pose.orientation.x,
+    cur.pose.orientation.y,
+    cur.pose.orientation.z,
+    cur.pose.orientation.w,
+  ]
+  rtde_help.goToPose(rtde_help.getPoseObj(p, o), speed=speed, acc=acc)
+
+
 def main(args):
-
-
-  deg2rad = np.pi / 180.0
 
 
   np.set_printoptions(precision=4)
@@ -46,17 +64,6 @@ def main(args):
 
   # Setup helper functions
   rtde_help = rtdeHelp(125)
-  adaptHelp = adaptMotionHelp(d_lat=0.0010, dw=0.57, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
-# adaptHelp = adaptMotionHelp(d_lat=0.005, dw=0.5, d_z=0.0010) #lateral --> align --> normal = sliding right --> rolling --> moving down
-  
-  # === d_w 동적 조정을 위한 변수 설정 ===
-  initial_dw_deg = 0.57  # 초기 d_w 값 (도 단위)
-  initial_dw_rad = initial_dw_deg * np.pi / 180.0  # 라디안으로 변환
-  dw_change_deg = 0.03  # align 변경 시 d_w 변화량 (도 단위)
-  dw_change_rad = dw_change_deg * np.pi / 180.0  # 라디안으로 변환
-  prev_align_direction = 0  # 이전 align_direction 값
-  align_repeat_count = 0  # 같은 align_direction 값이 반복된 횟수
-  align_repeat_threshold = 2  # 초기값으로 복귀하기 위한 반복 횟수
 
   P_help = P_CallbackHelp()  # Pressure sensor helper
   rospy.sleep(0.5)
@@ -117,555 +124,179 @@ def main(args):
   try:
 
 
-    input("Press <Enter> to go to pose A (positionA_true)")
+    if not getattr(args, "skip_pose_enter", False):
+      input("Press <Enter> to go to pose A (positionA_true)")
     rtde_help.goToPose(poseA)
     rospy.sleep(1)
     print("poseA: ", rtde_help.getCurrentPose())
-    
-    # === Initialize data collection lists ===
-    # Store data for each iteration (including initial position)
-    data_positions = []  # List of [x, y, z] positions
-    data_v_vectors = []  # List of v vectors [vx, vy]
-    data_pressure_avg = []  # List of pressure averages
-    data_pressure_raw = []  # List of raw pressure arrays
-    data_iteration = []  # Iteration number
-    data_timestamps = []  # List of timestamps (seconds since start)
-    
-    # Record start time for relative timestamps
+
+    # --- Haptic center-of-mass search (4ch pressure, Z-probe gradient) ---
+    probe_z_mm = float(getattr(args, "haptic_probe_z_mm", 10.0))
+    step_xy_mm = float(getattr(args, "haptic_step_xy_mm", 10.0))
+    final_lift_mm = float(getattr(args, "haptic_final_lift_mm", 50.0))
+    flat_ptp = float(getattr(args, "haptic_flat_weight_ptp", 0.11))
+    z_fast_speed = float(getattr(args, "haptic_z_probe_speed", 1.5))
+    z_fast_acc = float(getattr(args, "haptic_z_probe_acc", 1.5))
+    xy_speed = float(getattr(args, "haptic_xy_speed", 0.12))
+    xy_acc = float(getattr(args, "haptic_xy_acc", 0.12))
+    max_iters = int(getattr(args, "haptic_max_iters", 80))
+    min_lat_m = float(getattr(args, "haptic_min_lateral_mm", 0.25)) * 1e-3
+
+    probe_z_m = probe_z_mm * 1e-3
+    step_xy_m = step_xy_mm * 1e-3
+    final_lift_m = final_lift_mm * 1e-3
+
+    data_positions = []
+    data_gradients = []
+    data_weights = []
+    data_pressure_before = []
+    data_pressure_top = []
+    data_xy_steps_mm = []
+    data_iteration = []
+    data_timestamps = []
     timestamp_start_time = rospy.Time.now().to_sec()
-    
-    # Save initial position (positionA)
-    currentPose_init = rtde_help.getCurrentPose()
-    data_positions.append([currentPose_init.pose.position.x, 
-                          currentPose_init.pose.position.y, 
-                          currentPose_init.pose.position.z])
-    data_v_vectors.append([0.0, 0.0])  # No v vector at initial position
-    data_pressure_avg.append(0.0)  # No pressure data yet
-    data_pressure_raw.append([0.0, 0.0, 0.0, 0.0])  # No pressure data yet
-    data_iteration.append(0)  # Initial iteration
-    data_timestamps.append(0.0)  # Start time (relative timestamp = 0)
 
-
-    # Start pressure sampling
     P_help.startSampling()
     rospy.sleep(0.5)
     P_help.setNowAsOffset()
     rospy.sleep(0.5)
 
-    # Start data logging
     dataLoggerEnable(True)
     rospy.sleep(0.2)
 
-    # Start push (PUSH ON)
-    print("Starting push...")
-    msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_100
+    print("COM haptic: publishing PULL_STATE (suction on for probe); starting Z-probe loop.")
+    msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
     PushPull_pub.publish(msg)
-    rospy.sleep(0.1)
+    rospy.sleep(0.2)
 
+    def _save_com_mat(append_suffix=""):
+      dataLoggerEnable(False)
+      rospy.sleep(0.1)
+      args.data_com_positions = np.array(data_positions, dtype=float)
+      args.data_com_gradients = np.array(data_gradients, dtype=float)
+      args.data_com_weights = np.array(data_weights, dtype=float)
+      args.data_com_pressure_before = np.array(data_pressure_before, dtype=float)
+      args.data_com_pressure_top = np.array(data_pressure_top, dtype=float)
+      args.data_com_xy_steps_mm = np.array(data_xy_steps_mm, dtype=float)
+      args.data_com_iteration = np.array(data_iteration, dtype=float)
+      args.data_com_timestamps = np.array(data_timestamps, dtype=float)
+      args.positionA = positionA
+      args.positionA_true = positionA_true
+      cur_done = rtde_help.getCurrentPose()
+      args.com_final_pose_xyz = np.array(
+        [cur_done.pose.position.x, cur_done.pose.position.y, cur_done.pose.position.z],
+        dtype=float,
+      )
+      xoff = getattr(args, "xoffset", 0)
+      tag = "COM_haptic_material_%s_xoffset_%s%s" % (args.material, xoff, append_suffix)
+      file_help.saveDataParams(args, appendTxt=tag)
+      file_help.clearTmpFolder()
 
-    input("Press <Enter> to start surface following")
+    it = 0
+    while it < max_iters and not rospy.is_shutdown():
+      it += 1
+      cur = rtde_help.getCurrentPose()
+      pos = [cur.pose.position.x, cur.pose.position.y, cur.pose.position.z]
 
+      msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
+      PushPull_pub.publish(msg)
+      rospy.sleep(0.05)
 
-    # === Lateral sliding based only on pressure direction ===
-    # step size is adaptHelp.d_lat (set from d_lat=0.0010 above)
-    target_grasp_pressure = 12.5  # mean of 4 channels to trigger grasp (PULL)
+      p_before = _sample_four_pressure_avg(P_help)
 
-    # target_grasp_pressure = 15.0  # mean of 4 channels to trigger grasp (PULL) for baby_toy
-    stable_count_required = 8  # threshold를 연속으로 넘는 최소 횟수 
-    # stable_count_required = 8  # threshold를 연속으로 넘는 최소 횟수 for baby_toy (pressure is lower and noisier, so increase count)
+      # Fast +Z probe (base +Z), sample at top, return (almost instantaneous moveL)
+      _go_delta_xyz(rtde_help, 0.0, 0.0, probe_z_m, z_fast_speed, z_fast_acc)
+      rospy.sleep(0.02)
+      p_top = _sample_four_pressure_avg(P_help)
+      _go_delta_xyz(rtde_help, 0.0, 0.0, -probe_z_m, z_fast_speed, z_fast_acc)
+      rospy.sleep(0.02)
 
-    stable_count = 0
-    grasp_flag = False  # Flag to track if grasp condition is met
-    start_time = time.time()  # Record start time for timeout check
-    timeout_duration = 10.0  # 10 seconds timeout
+      msg.state, msg.pwm = PUSH_STATE, DUTYCYCLE_100
+      PushPull_pub.publish(msg)
+      rospy.sleep(1.0)
+      msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+      PushPull_pub.publish(msg)
+      rospy.sleep(1.0)
 
-    while 1:
-        # Check timeout: if 10 seconds have passed without reaching grasp condition
-        elapsed_time = time.time() - start_time
-        if elapsed_time >= timeout_duration and not grasp_flag:
-            print(f"Timeout reached ({timeout_duration}s) without reaching grasp condition. Resetting...")
-            grasp_flag = False
-            
-            # === Stop servoL mode before switching to moveL ===
-            print("Stopping servoL mode...")
-            rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait for servoL to fully stop
-            
-            # Get current pose and switch to moveL mode
-            currentPose_timeout = rtde_help.getCurrentPose()
-            currentPosition_timeout = [currentPose_timeout.pose.position.x,
-                                      currentPose_timeout.pose.position.y,
-                                      currentPose_timeout.pose.position.z]
-            currentOrientation_timeout = [currentPose_timeout.pose.orientation.x,
-                                          currentPose_timeout.pose.orientation.y,
-                                          currentPose_timeout.pose.orientation.z,
-                                          currentPose_timeout.pose.orientation.w]
-            poseCurrent_timeout = rtde_help.getPoseObj(currentPosition_timeout, currentOrientation_timeout)
-            
-            # Move to current position using moveL to activate control script in moveL mode
-            print("Switching to moveL mode...")
-            rtde_help.goToPose(poseCurrent_timeout, speed=0.1, acc=0.1)
-            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
-            
-            # Save collected data before timeout
-            iteration_num = len(data_iteration)
-            current_timestamp = rospy.Time.now().to_sec() - timestamp_start_time
-            data_positions.append([currentPose_timeout.pose.position.x,
-                                  currentPose_timeout.pose.position.y,
-                                  currentPose_timeout.pose.position.z])
-            # Use last calculated v or [0,0] if not available
-            if len(data_v_vectors) > 0:
-                last_v = data_v_vectors[-1]
-            else:
-                last_v = [0.0, 0.0]
-            data_v_vectors.append(last_v)
-            data_pressure_avg.append(pressure_mean)
-            data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
-            data_iteration.append(iteration_num)
-            data_timestamps.append(current_timestamp)
-            
-            # Save all collected data to mat file
-            print("Saving collected data to mat file (timeout)...")
-            # Stop data logging before saving
-            dataLoggerEnable(False)
-            rospy.sleep(0.1)
-            args.data_positions = np.array(data_positions)
-            args.data_v_vectors = np.array(data_v_vectors)
-            args.data_pressure_avg = np.array(data_pressure_avg)
-            args.data_pressure_raw = np.array(data_pressure_raw)
-            args.data_iteration = np.array(data_iteration)
-            args.data_timestamps = np.array(data_timestamps)
-            args.positionA = positionA
-            args.positionA_true = positionA_true
-            args.positionGrasp = np.array([])  # Empty array instead of None for failed case
-            
-            xoffset_val = getattr(args, "xoffset", 0)
-            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
-            file_help.clearTmpFolder()
-            
-            # Set PUSH_STATE to OFF_STATE (0)
-            print("Turning off push...")
-            msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
-            PushPull_pub.publish(msg)
-            rospy.sleep(0.1)
-            
-            # === Move to position offset from positionA (x-15cm, y+15cm, z+10cm) ===
-            offset_distance = 0.15  # 15cm in meters
-            positionOffset = [positionA[0] - offset_distance, 
-                             positionA[1] + offset_distance, 
-                             positionA[2] + 0.10]
-            poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-            print(f"Moving to offset position from positionA: {positionOffset}")
-            rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
-            rospy.sleep(1)
-            print("Reached offset position")
-            
-            # Stop pressure sampling and exit
-            P_help.stopSampling()
-            print("============ Python UR_Interface demo complete!")
-            return
+      grad = p_top - p_before
+      s_abs = float(np.sum(np.abs(grad)))
+      if s_abs < 1e-12:
+        w = np.ones(4, dtype=float) / 4.0
+      else:
+        w = np.abs(grad) / s_abs
 
-        rospy.sleep(0.05)  # Small delay to allow pressure data to update
+      ts = rospy.Time.now().to_sec() - timestamp_start_time
+      data_positions.append(pos)
+      data_gradients.append(grad.tolist())
+      data_weights.append(w.tolist())
+      data_pressure_before.append(p_before.tolist())
+      data_pressure_top.append(p_top.tolist())
+      data_iteration.append(float(it))
+      data_timestamps.append(ts)
 
-        # Get raw pressure data (array-like, shape (4,))
-        pressure_avg = np.array(P_help.four_pressure).ravel()
+      # Lateral from weights: dx = step*(w0-w2), dy = step*(w1-w3)
+      # (ch1 +x, ch2 +y, ch3 -x, ch4 -y in 1-based numbering -> w[0]..w[3])
+      dx_m = step_xy_m * (float(w[0]) - float(w[2]))
+      dy_m = step_xy_m * (float(w[1]) - float(w[3]))
+      lat_mag = float(np.hypot(dx_m, dy_m))
 
-        # Thresholding (<=10 -> 0) and mean based on thresholded values
-        pressure = pressure_avg.copy()
-        pressure[pressure <= 10.0] = 0.0
-        pressure_mean = float(np.mean(pressure))
+      print(
+        "[COM %d] xyz=(%.4f,%.4f,%.4f) grad=%s w=%s dxy_mm=(%.3f,%.3f)"
+        % (
+          it,
+          pos[0],
+          pos[1],
+          pos[2],
+          np.round(grad, 3),
+          np.round(w, 3),
+          dx_m * 1e3,
+          dy_m * 1e3,
+        )
+      )
 
-        # Check grasp condition:
-        #  - 평균 압력이 target_grasp_pressure 이상인 상태가
-        #  - stable_count_required 회 이상 연속으로 유지되면 grasp 시퀀스 실행
-        if pressure_mean >= target_grasp_pressure:
-            stable_count += 1
+      flat_weights = float(np.max(w) - np.min(w)) < flat_ptp
+      tiny_move = lat_mag < min_lat_m
+
+      # No useful lateral update => hold XY, PULL, +Z final lift
+      if flat_weights or tiny_move:
+        data_xy_steps_mm.append([0.0, 0.0])
+        if flat_weights and tiny_move:
+          why = "flat weights and tiny |dxy|"
+        elif flat_weights:
+          why = "flat weights (max(w)-min(w) < %.4f)" % flat_ptp
         else:
-            stable_count = 0
-
-        if stable_count >= stable_count_required:
-            grasp_flag = True  # Set grasp_flag to True when condition is met
-            
-            # === Stop servoL mode immediately when grasp condition is met ===
-            print("Stopping servoL mode...")
-            rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait longer for servoL to fully stop
-            
-            # Turn off push (PUSH_STATE to OFF_STATE)
-            print("Turning off push...")
-            msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
-            PushPull_pub.publish(msg)
-            rospy.sleep(0.2)
-            # Save current end effector position (like positionA)
-            
-            currentPose_at_grasp = rtde_help.getCurrentPose()
-            positionGrasp = [currentPose_at_grasp.pose.position.x, 
-                             currentPose_at_grasp.pose.position.y, 
-                             currentPose_at_grasp.pose.position.z]
-            
-            # Add current position at grasp to data collection
-            iteration_num = len(data_iteration)
-            current_timestamp = rospy.Time.now().to_sec() - timestamp_start_time
-            data_positions.append([currentPose_at_grasp.pose.position.x,
-                                  currentPose_at_grasp.pose.position.y,
-                                  currentPose_at_grasp.pose.position.z])
-            # Use last calculated v or [0,0] if not available
-            if len(data_v_vectors) > 0:
-                last_v = data_v_vectors[-1]
-            else:
-                last_v = [0.0, 0.0]
-            data_v_vectors.append(last_v)
-            data_pressure_avg.append(pressure_mean)
-            data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
-            data_iteration.append(iteration_num)
-            data_timestamps.append(current_timestamp)
-            
-            # Save all collected data to mat file with positionGrasp
-            print("Saving collected data to mat file...")
-            # Stop data logging before saving
-            dataLoggerEnable(False)
-            rospy.sleep(0.1)
-            args.data_positions = np.array(data_positions)
-            args.data_v_vectors = np.array(data_v_vectors)
-            args.data_pressure_avg = np.array(data_pressure_avg)
-            args.data_pressure_raw = np.array(data_pressure_raw)
-            args.data_iteration = np.array(data_iteration)
-            args.data_timestamps = np.array(data_timestamps)
-            args.positionA = positionA
-            args.positionA_true = positionA_true
-            args.positionGrasp = positionGrasp
-            
-            xoffset_val = getattr(args, "xoffset", 0)
-            file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_success')
-            file_help.clearTmpFolder()
-            print(f"Grasp condition reached stably ({stable_count} loops), mean pressure (thresholded) = {pressure_mean:.2f}")
-            input("Press <Enter> to go to offset position...")
-
-            # === Switch from servoL to moveL mode before moving to offset ===
-            # First, stop servoL mode
-            rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait for servoL to fully stop
-            
-            # Get current pose and switch to moveL mode by moving to current position
-            # This ensures RTDE control script is running in moveL mode
-            currentPose_switch = rtde_help.getCurrentPose()
-            currentPosition_switch = [currentPose_switch.pose.position.x,
-                                      currentPose_switch.pose.position.y,
-                                      currentPose_switch.pose.position.z]
-            currentOrientation_switch = [currentPose_switch.pose.orientation.x,
-                                         currentPose_switch.pose.orientation.y,
-                                         currentPose_switch.pose.orientation.z,
-                                         currentPose_switch.pose.orientation.w]
-            poseCurrent = rtde_help.getPoseObj(currentPosition_switch, currentOrientation_switch)
-            
-            # Move to current position using moveL to activate control script in moveL mode
-            print("Switching to moveL mode...")
-            rtde_help.goToPose(poseCurrent, speed=0.1, acc=0.1)
-            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
-
-            # === Move to position offset from positionA (x+15cm, y+15cm) ===
-            offset_distance = 0.15  # 15cm in meters
-            positionOffset = [positionA[0] - offset_distance, 
-                             positionA[1] + offset_distance, 
-                             positionA[2] + 0.10]
-            poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-            print(f"Moving to offset position from positionA: {positionOffset}")
-            rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
-            rospy.sleep(1)
-            
-            # Wait for user to press Enter at offset position
-            input("Press <Enter> to return to positionGrasp...")
-            
-            # === Ensure we're in moveL mode before returning to positionGrasp ===
-            # Get current pose and ensure moveL mode is active
-            currentPose_before_return = rtde_help.getCurrentPose()
-            currentPosition_before_return = [currentPose_before_return.pose.position.x,
-                                             currentPose_before_return.pose.position.y,
-                                             currentPose_before_return.pose.position.z]
-            currentOrientation_before_return = [currentPose_before_return.pose.orientation.x,
-                                                currentPose_before_return.pose.orientation.y,
-                                                currentPose_before_return.pose.orientation.z,
-                                                currentPose_before_return.pose.orientation.w]
-            poseCurrent_before_return = rtde_help.getPoseObj(currentPosition_before_return, currentOrientation_before_return)
-            
-            # Move to current position using moveL to ensure control script is ready
-            print("Ensuring moveL mode is active...")
-            rtde_help.goToPose(poseCurrent_before_return, speed=0.1, acc=0.1)
-            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
-            
-            # === Return to positionGrasp ===
-            # Get orientation from currentPose_at_grasp
-            orientationGrasp = [currentPose_at_grasp.pose.orientation.x,
-                               currentPose_at_grasp.pose.orientation.y,
-                               currentPose_at_grasp.pose.orientation.z,
-                               currentPose_at_grasp.pose.orientation.w]
-            poseGrasp = rtde_help.getPoseObj(positionGrasp, orientationGrasp)
-            print(f"Returning to positionGrasp: {positionGrasp}")
-            rtde_help.goToPose(poseGrasp, speed=0.1, acc=0.1)
-            rospy.sleep(1.5)  # Wait longer for moveL to complete
-            
-            # Wait 1 second at positionGrasp
-            print("Waiting 1 second at positionGrasp...")
-            rospy.sleep(1.0)
-            
-            # Ask user to press Enter before proceeding to deformation
-            input("Press <Enter> to proceed to deformation...")
-
-            # === Deformation: use moveL to move down by specified deformation ===
-            # Read current position at threshold condition
-            currentPose = rtde_help.getCurrentPose()
-            
-            # Get deformation argument (mm) and convert to meters
-            deformation_mm = getattr(args, "deformation", 3.0)
-            deformation_m = deformation_mm * 1e-3
-            
-            # Calculate target position (move down by deformation)
-            target_position_deform = [currentPose.pose.position.x,
-                                     currentPose.pose.position.y,
-                                     currentPose.pose.position.z - deformation_m]
-            target_orientation_deform = [currentPose.pose.orientation.x,
-                                        currentPose.pose.orientation.y,
-                                        currentPose.pose.orientation.z,
-                                        currentPose.pose.orientation.w]
-            poseDeform = rtde_help.getPoseObj(target_position_deform, target_orientation_deform)
-            
-            print(f"Applying deformation: {deformation_mm} mm (downward) from Z={currentPose.pose.position.z:.6f}m")
-            
-            # Use moveL to move down (single smooth motion instead of steps)
-            rtde_help.goToPose(poseDeform, speed=0.05, acc=0.05)
-            rospy.sleep(1.0)  # Wait longer for motion to complete
-            
-            final_z = rtde_help.getCurrentPose().pose.position.z
-            print(f"Final Z after deformation: {final_z:.6f}m")
-
-            # After reaching deformation depth, wait 2 seconds (still in PUSH state)
-            rospy.sleep(3.0)
-
-            # === Grasp: switch to PULL and hold suction for 2 seconds ===
-            print("Switching to PULL state for grasp...")
-            msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
-            PushPull_pub.publish(msg)
-            rospy.sleep(3.0)
-
-            # === Lift: use moveL to move up by same deformation + extra 20cm ===
-            # Read current position (after deformation)
-            currentPose_after_deform = rtde_help.getCurrentPose()
-            
-            # Move up by deformation distance + extra lift (20cm)
-            extra_lift = 0.20  # 20cm
-            total_lift = deformation_m + extra_lift
-            
-            # Calculate target position (move up by total_lift)
-            target_position_lift = [currentPose_after_deform.pose.position.x,
-                                   currentPose_after_deform.pose.position.y,
-                                   currentPose_after_deform.pose.position.z + total_lift]
-            target_orientation_lift = [currentPose_after_deform.pose.orientation.x,
-                                      currentPose_after_deform.pose.orientation.y,
-                                      currentPose_after_deform.pose.orientation.z,
-                                      currentPose_after_deform.pose.orientation.w]
-            poseLift = rtde_help.getPoseObj(target_position_lift, target_orientation_lift)
-            
-            print(f"Lifting: {total_lift*1000:.1f}mm (upward) from Z={currentPose_after_deform.pose.position.z:.6f}m")
-            
-            # Use moveL to move up (single smooth motion instead of steps)
-            rtde_help.goToPose(poseLift, speed=0.1, acc=0.1)
-            rospy.sleep(1.5)  # Wait longer for motion to complete
-            
-            final_z_lift = rtde_help.getCurrentPose().pose.position.z
-            print(f"Final Z after lift: {final_z_lift:.6f}m")
-
-            # Stop suction (OFF_STATE) before finishing
-            print("Stopping suction (OFF_STATE)...")
-            msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
-            PushPull_pub.publish(msg)
-            rospy.sleep(0.1)
-            
-            # Stop pressure sampling and finish
-            P_help.stopSampling()
-            print("============ Python UR_Interface demo complete!")
-            return
-
-        # Channel unit vectors: -45, 45, 135, 225 deg
-        n = 4
-        e = np.zeros((n, 2))
-        for k in range(n):
-            alpha_k = (k * (360.0 / n)) - 45.0
-            e[k, 0] = np.cos(np.deg2rad(alpha_k))
-            e[k, 1] = np.sin(np.deg2rad(alpha_k))
-
-        # Weighted sum
-        v = np.array([0.0, 0.0])
-        for k in range(n):
-            v = v + pressure[k] * e[k, :]
-
-        # Normalize
-        nv = np.linalg.norm(v)
-        if nv == 0 or not np.isfinite(nv):
-            # No meaningful direction from pressure; skip motion this cycle
-            print(f"No valid lateral direction (pressure={pressure_avg}), skipping step.")
-            if rospy.is_shutdown():
-                msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
-                PushPull_pub.publish(msg)
-                P_help.stopSampling()
-                return
-            continue
-
-        v = v / nv  # unit vector in lateral plane
-
-        # Lateral step in v direction with step size d_lat
-        d_lat = adaptHelp.d_lat
-        dx = d_lat * v[0]
-        dy = d_lat * v[1]
-
-        T_later = adaptHelp.get_Tmat_TranlateInBodyF([dx, dy, 0.0])
-
-        # Move to new pose adaptively using only lateral motion
-        measuredCurrPose = rtde_help.getCurrentPose()
-        deltaPose = adaptHelp.get_PoseStamped_from_T_initPose(T_later, measuredCurrPose)
-        rtde_help.goToPoseAdaptive(deltaPose)
-        
-        # Get current position after movement
-        currentPose_after_move = rtde_help.getCurrentPose()
-        
-        # Collect data for this iteration
-        iteration_num = len(data_iteration)  # Current iteration number
-        current_timestamp = rospy.Time.now().to_sec() - timestamp_start_time
-        data_positions.append([currentPose_after_move.pose.position.x,
-                              currentPose_after_move.pose.position.y,
-                              currentPose_after_move.pose.position.z])
-        data_v_vectors.append([v[0], v[1]])  # Store normalized v vector
-        data_pressure_avg.append(pressure_mean)
-        data_pressure_raw.append(pressure_avg.tolist() if isinstance(pressure_avg, np.ndarray) else list(pressure_avg))
-        data_iteration.append(iteration_num)
-        data_timestamps.append(current_timestamp)
-
-        # Debug print
-        print(f"Pressure raw: {pressure_avg}, mean: {pressure_mean:.2f}, v: {v}, step: ({dx:.6f}, {dy:.6f})")
-
-        if rospy.is_shutdown():
-            # === Stop servoL mode before switching to moveL ===
-            print("Stopping servoL mode...")
-            rtde_help.stopAtCurrPoseAdaptive()
-            rospy.sleep(0.5)  # Wait for servoL to fully stop
-            
-            # Get current pose and switch to moveL mode
-            currentPose_shutdown = rtde_help.getCurrentPose()
-            currentPosition_shutdown = [currentPose_shutdown.pose.position.x,
-                                       currentPose_shutdown.pose.position.y,
-                                       currentPose_shutdown.pose.position.z]
-            currentOrientation_shutdown = [currentPose_shutdown.pose.orientation.x,
-                                           currentPose_shutdown.pose.orientation.y,
-                                           currentPose_shutdown.pose.orientation.z,
-                                           currentPose_shutdown.pose.orientation.w]
-            poseCurrent_shutdown = rtde_help.getPoseObj(currentPosition_shutdown, currentOrientation_shutdown)
-            
-            # Move to current position using moveL to activate control script in moveL mode
-            print("Switching to moveL mode...")
-            rtde_help.goToPose(poseCurrent_shutdown, speed=0.1, acc=0.1)
-            rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
-            
-            # Save collected data before shutdown
-            if len(data_positions) > 0:
-                print("Saving collected data to mat file (shutdown)...")
-                # Stop data logging before saving
-                dataLoggerEnable(False)
-                rospy.sleep(0.1)
-                args.data_positions = np.array(data_positions)
-                args.data_v_vectors = np.array(data_v_vectors)
-                args.data_pressure_avg = np.array(data_pressure_avg)
-                args.data_pressure_raw = np.array(data_pressure_raw)
-                args.data_iteration = np.array(data_iteration)
-                args.data_timestamps = np.array(data_timestamps)
-                args.positionA = positionA
-                args.positionA_true = positionA_true
-                args.positionGrasp = np.array([])  # Empty array instead of None for failed case
-                
-                xoffset_val = getattr(args, "xoffset", 0)
-                file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
-                file_help.clearTmpFolder()
-            
-            # Stop push before moving to offset
-            print("Turning off push...")
-            msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
-            PushPull_pub.publish(msg)
-            rospy.sleep(0.1)
-            
-            # === Move to position offset from positionA (x-15cm, y+15cm, z+10cm) ===
-            offset_distance = 0.15  # 15cm in meters
-            positionOffset = [positionA[0] - offset_distance, 
-                             positionA[1] + offset_distance, 
-                             positionA[2] + 0.10]
-            poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-            print(f"Moving to offset position from positionA: {positionOffset}")
-            rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
-            rospy.sleep(1)
-            print("Reached offset position")
-            
-            P_help.stopSampling()
-            return
-
-    # If we exit the loop without grasp (e.g., shutdown), clean up
-    # === Stop servoL mode before switching to moveL ===
-    print("Stopping servoL mode...")
-    rtde_help.stopAtCurrPoseAdaptive()
-    rospy.sleep(0.5)  # Wait for servoL to fully stop
-    
-    # Get current pose and switch to moveL mode
-    currentPose_exit = rtde_help.getCurrentPose()
-    currentPosition_exit = [currentPose_exit.pose.position.x,
-                            currentPose_exit.pose.position.y,
-                            currentPose_exit.pose.position.z]
-    currentOrientation_exit = [currentPose_exit.pose.orientation.x,
-                               currentPose_exit.pose.orientation.y,
-                               currentPose_exit.pose.orientation.z,
-                               currentPose_exit.pose.orientation.w]
-    poseCurrent_exit = rtde_help.getPoseObj(currentPosition_exit, currentOrientation_exit)
-    
-    # Move to current position using moveL to activate control script in moveL mode
-    print("Switching to moveL mode...")
-    rtde_help.goToPose(poseCurrent_exit, speed=0.1, acc=0.1)
-    rospy.sleep(0.5)  # Wait for moveL to complete and control script to be ready
-    
-    # Save collected data before exit
-    if len(data_positions) > 0:
-        print("Saving collected data to mat file (loop exit)...")
-        # Stop data logging before saving
-        dataLoggerEnable(False)
+          why = "tiny move (|dxy| < %.3f mm)" % (min_lat_m * 1e3)
+        print("Converged (%s): hold XY, PULL, +Z %.1f mm" % (why, final_lift_mm))
+        msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
+        PushPull_pub.publish(msg)
+        rospy.sleep(0.2)
+        _go_delta_xyz(rtde_help, 0.0, 0.0, final_lift_m, 0.25, 0.25)
+        rospy.sleep(0.4)
+        _save_com_mat("_converged")
+        msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
+        PushPull_pub.publish(msg)
         rospy.sleep(0.1)
-        args.data_positions = np.array(data_positions)
-        args.data_v_vectors = np.array(data_v_vectors)
-        args.data_pressure_avg = np.array(data_pressure_avg)
-        args.data_pressure_raw = np.array(data_pressure_raw)
-        args.data_iteration = np.array(data_iteration)
-        args.data_timestamps = np.array(data_timestamps)
-        args.positionA = positionA
-        args.positionA_true = positionA_true
-        args.positionGrasp = np.array([])  # Empty array instead of None for failed case
-        
-        xoffset_val = getattr(args, "xoffset", 0)
-        file_help.saveDataParams(args, appendTxt=f'Demo4SlidingError_push_material_{args.material}_xoffset_{xoffset_val}_failed')
-        file_help.clearTmpFolder()
-    
-    # Stop push before moving to offset
-    print("Turning off push...")
+        P_help.stopSampling()
+        print("============ COM haptic search complete (converged).")
+        return
+
+      data_xy_steps_mm.append([dx_m * 1e3, dy_m * 1e3])
+      _go_delta_xyz(rtde_help, dx_m, dy_m, 0.0, xy_speed, xy_acc)
+      rospy.sleep(0.05)
+
+      msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
+      PushPull_pub.publish(msg)
+      rospy.sleep(0.15)
+
+    print("Max iterations (%d); saving and stopping." % max_iters)
+    _save_com_mat("_max_iters")
     msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
     PushPull_pub.publish(msg)
     rospy.sleep(0.1)
-    
-    # === Move to position offset from positionA (x-15cm, y+15cm, z+10cm) ===
-    offset_distance = 0.15  # 15cm in meters
-    positionOffset = [positionA[0] - offset_distance, 
-                     positionA[1] + offset_distance, 
-                     positionA[2] + 0.10]
-    poseOffset = rtde_help.getPoseObj(positionOffset, orientationA)
-    print(f"Moving to offset position from positionA: {positionOffset}")
-    rtde_help.goToPose(poseOffset, speed=0.1, acc=0.1)
-    rospy.sleep(1)
-    print("Reached offset position")
-    
     P_help.stopSampling()
-    dataLoggerEnable(False)
-    print("============ Python UR_Interface demo complete!")
+    print("============ COM haptic search stopped (max iters).")
+    return
+
   except rospy.ROSInterruptException:
     dataLoggerEnable(False)
     return
@@ -677,9 +308,18 @@ def main(args):
 if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
-  parser.add_argument('--deformation', type=float, default=3, help='Deformation (mm) to apply downward before grasp')
+  parser.add_argument('--deformation', type=float, default=3, help='(unused in COM haptic mode) legacy arg')
   parser.add_argument('--material', type=str, default="paper", help='object to test')
-  parser.add_argument('--xoffset', type=float, default=0, help='X offset (mm) to add to positionA y coordinate')
+  parser.add_argument('--xoffset', type=float, default=0, help='X offset (mm) subtracted from positionA x (see positionA_true)')
+  parser.add_argument('--skip_pose_enter', action='store_true', help='Do not wait for Enter before move to pose A (use with care)')
+  parser.add_argument('--haptic_probe_z_mm', type=float, default=10.0, help='Fast Z probe height (mm, +base Z)')
+  parser.add_argument('--haptic_z_probe_speed', type=float, default=1.5, help='RTDE moveL TCP linear speed for Z probe (m/s)')
+  parser.add_argument('--haptic_z_probe_acc', type=float, default=1.5, help='RTDE moveL TCP linear accel for Z probe (m/s^2)')
+  parser.add_argument('--haptic_step_xy_mm', type=float, default=10.0, help='Scale s (mm): dx=s*(w0-w2), dy=s*(w1-w3), w=|grad|/sum|grad|')
+  parser.add_argument('--haptic_final_lift_mm', type=float, default=50.0, help='Z lift after convergence (mm)')
+  parser.add_argument('--haptic_flat_weight_ptp', type=float, default=0.11, help='Converge if max(w)-min(w) < this')
+  parser.add_argument('--haptic_min_lateral_mm', type=float, default=0.25, help='Converge if hypot(dx,dy) below this (mm)')
+  parser.add_argument('--haptic_max_iters', type=int, default=80, help='Safety cap on search iterations')
 
   cli_args = parser.parse_args()
   main(cli_args)
