@@ -111,7 +111,7 @@ def main(args):
         input("Press <Enter> to start to data collection")
         
         # z 오프셋 범위: 0mm부터 0.5mm씩 증가하여 30mm까지 (양의 z 방향)
-        z_offsets_mm = np.arange(0, 30.5, 0.5)  # [0, 0.5, 1.0, ..., 30.0]
+        z_offsets_mm = np.arange(0, 3.5, 0.5)  # [0, 0.5, 1.0, ..., 30.0]
         
         fixed_orientation = tf.transformations.quaternion_from_euler(pi/2, pi, 0, 'szxy')
         
