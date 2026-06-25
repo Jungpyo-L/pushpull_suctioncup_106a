@@ -206,14 +206,16 @@ def main(args):
                P_help.stopSampling()
                rospy.sleep(0.1)
 
-           # 다음 radius로 넘어가기 전 yaw 0° 복귀 (누적 회전 해소)
-           if radius_idx < len(radii) - 1:
-               print(f"  Resetting yaw to 0° before next radius")
-               yaw0_orientation = tf.transformations.quaternion_from_euler(
-                   default_yaw, pi, 0, 'szxy')
-               yaw0_pose = rtde_help.getPoseObj(disengagePosition_r, yaw0_orientation)
-               rtde_help.goToPose(yaw0_pose)
-               rospy.sleep(0.2)
+           # 다음 radius로 넘어가기 전 yaw 0° 복귀 (한 번에 점프하면 반시계 장회전 → 단계별 역방향)
+           if radius_idx < len(radii) - 1 and len(yaw_deg_list) > 1:
+               print(f"  Resetting yaw to 0° step-by-step (reverse sweep)")
+               for reset_yaw in reversed(yaw_deg_list[:-1]):
+                   print(f"    -> yaw {reset_yaw}°")
+                   reset_orientation = tf.transformations.quaternion_from_euler(
+                       default_yaw - reset_yaw*pi/180, pi, 0, 'szxy')
+                   reset_pose = rtde_help.getPoseObj(disengagePosition_r, reset_orientation)
+                   rtde_help.goToPose(reset_pose)
+                   rospy.sleep(0.1)
 
 
        # ===== 실험 종료 및 뒷정리 =====
