@@ -28,8 +28,25 @@ class P_CallbackHelp(object):
         self.samplingF      = 166
         self.FFTbuffer_size = int(self.samplingF / 2)
         self.lock = threading.Lock()
-        self.Psensor_Num = psensor_num if psensor_num is not None else 4
-        self._init_sensor_buffers(self.Psensor_Num)
+        self.Psensor_Num = 0
+        self.PressureBuffer = []
+        self.PressurePWMBuffer = np.zeros((int(166/2), 0))
+        self.PressureOffsetBuffer = np.zeros((51, 0))
+        self.thisPres = np.zeros(0)
+        self.four_pressure = []
+        self.four_pressurePWM = []
+        self.PressureOffset = np.zeros(0)
+        if psensor_num is not None:
+            self._init_sensor_buffers(psensor_num)
+
+    def _sensor_count_from_msg(self, data):
+        n = len(data.data)
+        if data.ch > 0 and data.ch != n:
+            rospy.logwarn_throttle(
+                5.0,
+                "SensorPacket ch=%d but data has %d values; using data length.",
+                data.ch, n)
+        return n
 
     def _init_sensor_buffers(self, n):
         self.Psensor_Num = n
@@ -69,19 +86,26 @@ class P_CallbackHelp(object):
             pass
 
     def setNowAsOffset(self):
-        self.PressureOffset *= 0
         rospy.sleep(0.5)
         with self.lock:
             buffer_copy = np.copy(self.PressureBuffer)
+        if buffer_copy.ndim != 2 or buffer_copy.shape[1] == 0:
+            return
+        if buffer_copy.shape[1] != self.Psensor_Num:
+            self._init_sensor_buffers(buffer_copy.shape[1])
         self.PressureOffset = np.mean(buffer_copy, axis=0)
 
     def callback_P(self, data):
         if not self.publish_enabled or rospy.is_shutdown():
             return
-        n = data.ch if data.ch > 0 else len(data.data)
+        n = self._sensor_count_from_msg(data)
+        if n == 0:
+            return
         if n != self.Psensor_Num:
             self._init_sensor_buffers(n)
-        self.thisPres = np.array(data.data[:n], dtype=float)
+        self.thisPres = np.array(data.data, dtype=float)
+        if self.thisPres.shape[0] != self.PressureOffset.shape[0]:
+            self._init_sensor_buffers(self.thisPres.shape[0])
         with self.lock:
             self.PressureBuffer[self.P_idx] = self.thisPres - self.PressureOffset
             self.P_idx += 1
