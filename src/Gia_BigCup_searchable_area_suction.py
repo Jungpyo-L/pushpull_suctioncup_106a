@@ -5,10 +5,8 @@ from std_msgs.msg import Int8
 from pushpull_suctioncup_106a.msg import PushPull
 from suction_cup.srv import Enable
 from helperFunction.SuctionP_callback_helper import P_CallbackHelp
-from helperFunction.FT_callback_helper import FT_CallbackHelp
 from helperFunction.fileSaveHelper import fileSaveHelp
 from helperFunction.rtde_helper import rtdeHelp
-from helperFunction.adaptiveMotion import adaptMotionHelp
 
 
 def main(args):
@@ -23,18 +21,11 @@ def main(args):
    OFF_STATE = 0
 
 
-   # Normal force threshold (chamber 수에 따라 다름 가능)
-   F_normalThres = [args.normalForce, args.normalForce + 0.5]
-   args.normalForce_thres = F_normalThres
-
-
    # ========== ROS 초기화 및 헬퍼 ==========
    rospy.init_node('suction_cup')
-   FT_help = FT_CallbackHelp(); rospy.sleep(0.5)
    P_help = P_CallbackHelp(psensor_num=args.ch); rospy.sleep(0.5)
    rtde_help = rtdeHelp(125); rospy.sleep(0.5)
    file_help = fileSaveHelp()
-   adpt_help = adaptMotionHelp(dw=0.5, d_lat=0.5e-3, d_z=0.1e-3)
    rospy.sleep(0.5)
 
 
@@ -73,7 +64,7 @@ def main(args):
 
 
    # ch별 중심 yaw 기준 오프셋 적용
-   if args.ch == 3: default_yaw = pi/2 + 120*pi/180
+   if args.ch == 3: default_yaw = pi/2 - 30*pi/180
    if args.ch == 4: default_yaw = pi/2 - 45*pi/180
    if args.ch == 5: default_yaw = pi/2 - 90*pi/180
    if args.ch == 6: default_yaw = pi/2 - 60*pi/180
@@ -88,37 +79,13 @@ def main(args):
        rtde_help.goToPose(disEngagePose)
        rospy.sleep(0.1)
        P_help.startSampling(); rospy.sleep(1)
-       FT_help.setNowAsBias()
        P_help.setNowAsOffset()
 
 
        input("Press <Enter> to go normal to get engage point")
-       if args.zHeight:
-           engage_z = disengagePosition_init[2] - args.deformation*1e-3
-       else:
-           targetPose = rtde_help.getCurrentPose()
-           farFlag = True
-           F_normal = FT_help.averageFz_noOffset
-           msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_0
-           PushPull_pub.publish(msg)
-           while farFlag:
-               if F_normal > -F_normalThres[0]:
-                   T_move = adpt_help.get_Tmat_TranlateInZ(direction=1)
-               elif F_normal < -F_normalThres[1]:
-                   T_move = adpt_help.get_Tmat_TranlateInZ(direction=-1)
-               else:
-                   farFlag = False
-                   rtde_help.stopAtCurrPoseAdaptive()
-                   args.normalForceUsed = F_normal
-                   break
-               targetPose = adpt_help.get_PoseStamped_from_T_initPose(T_move, targetPose)
-               rtde_help.goToPoseAdaptive(targetPose, time=0.1)
-               F_normal = FT_help.averageFz_noOffset
-           engage_z = rtde_help.getCurrentPose().pose.position.z
-           rtde_help.goToPose(disEngagePose)
-           rospy.sleep(0.1)
-           with open(file_help.ResultSavingDirectory+'/engage_z.p', 'wb') as f:
-               pickle.dump(engage_z, f)
+       engage_z = disengagePosition_init[2] - args.deformation*1e-3
+       with open(file_help.ResultSavingDirectory+'/engage_z.p', 'wb') as f:
+           pickle.dump(engage_z, f)
 
 
        input("Press <Enter> to start to data collection")
@@ -182,11 +149,8 @@ def main(args):
               
                rospy.sleep(2.0)
               
-               P_init = P_help.four_pressure
-               F_normal = FT_help.averageFz_noOffset
-               args.normalForceActual = F_normal
-               args.pressure_avg = P_init
-               P_vac = abs(P_help.P_vac)
+               args.pressure_avg = P_help.four_pressure
+               args.P_vac = abs(P_help.P_vac)
               
                syncPub.publish(SYNC_STOP)
                rospy.sleep(0.1)
@@ -244,9 +208,7 @@ if __name__ == "__main__":
    parser.add_argument('--xoffset', type=int, default=0)
    parser.add_argument('--angle', type=int, default=360)
    parser.add_argument('--startAngle', type=int, default=0)
-   parser.add_argument('--normalForce', type=float, default=1.5)
    parser.add_argument('--deformation', type=float, default=6.3)
-   parser.add_argument('--zHeight', type=bool, default=True)
    parser.add_argument('--ch', type=int, default=3)
    parser.add_argument('--corner', type=int, default=180)
    parser.add_argument('--material', type=int, default=0)
