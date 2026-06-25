@@ -28,7 +28,7 @@ def main(args):
     # ========== ROS 초기화 및 헬퍼 ==========
     rospy.init_node('suction_cup')
     FT_help = FT_CallbackHelp(); rospy.sleep(0.5)
-    P_help = P_CallbackHelp(); rospy.sleep(0.5)
+    P_help = P_CallbackHelp(psensor_num=args.ch); rospy.sleep(0.5)
     rtde_help = rtdeHelp(125); rospy.sleep(0.5)
     file_help = fileSaveHelp()
     adpt_help = adaptMotionHelp(dw=0.5, d_lat=0.5e-3, d_z=0.1e-3)
@@ -64,7 +64,7 @@ def main(args):
     args.disengagePosition_init = disengagePosition_init
 
     # ch별 중심 yaw 기준 오프셋 적용
-    if args.ch == 3: default_yaw = pi/2 - 60*pi/180
+    if args.ch == 3: default_yaw = pi/2 + 30*pi/180
     if args.ch == 4: default_yaw = pi/2 - 45*pi/180
     if args.ch == 5: default_yaw = pi/2 - 90*pi/180
     if args.ch == 6: default_yaw = pi/2 - 60*pi/180

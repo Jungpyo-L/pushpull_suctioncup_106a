@@ -28,7 +28,7 @@ def main(args):
     # ========== ROS 초기화 및 헬퍼 ==========
     rospy.init_node('suction_cup')
     FT_help = FT_CallbackHelp(); rospy.sleep(0.5)
-    P_help = P_CallbackHelp(); rospy.sleep(0.5)
+    P_help = P_CallbackHelp(psensor_num=args.ch); rospy.sleep(0.5)
     rtde_help = rtdeHelp(125); rospy.sleep(0.5)
     file_help = fileSaveHelp()
     adpt_help = adaptMotionHelp(dw=0.5, d_lat=0.5e-3, d_z=0.1e-3)
@@ -56,7 +56,7 @@ def main(args):
     # === 초기 disengage position 설정 ===
     # chamber 위치에 따라 기준 변경 (아래 조건은 첫번째 코드와 동일)
     if args.corner == 180:
-        disengagePosition_init = [0.6672, -.236, 0.0531] #35mm=0.035m --> 0.035+0.0180=0.053m
+        disengagePosition_init = [0.63282, -.0457, 0.0841]
     elif args.corner == 270:
         disengagePosition_init = [0.555, 0.100, 0.0170] #25mm=0.025m --> 0.025+0.0170=0.042m
     elif args.corner == 90:
@@ -64,7 +64,7 @@ def main(args):
     args.disengagePosition_init = disengagePosition_init
 
     # ch별 중심 yaw 기준 오프셋 적용
-    if args.ch == 3: default_yaw = pi/2 - 60*pi/180
+    if args.ch == 3: default_yaw = pi/2 + 30*pi/180
     if args.ch == 4: default_yaw = pi/2 - 45*pi/180
     if args.ch == 5: default_yaw = pi/2 - 90*pi/180
     if args.ch == 6: default_yaw = pi/2 - 60*pi/180

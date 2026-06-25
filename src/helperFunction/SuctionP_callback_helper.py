@@ -6,7 +6,7 @@ from scipy import signal
 import threading
 
 class P_CallbackHelp(object):
-    def __init__(self):
+    def __init__(self, psensor_num=None):
         self.sub = rospy.Subscriber("SensorPacket", SensorPacket, self.callback_P)
         self.START_CMD  = 2
         self.IDLE_CMD   = 3
@@ -17,25 +17,33 @@ class P_CallbackHelp(object):
         self.callback_Pub  = rospy.Publisher('SensorCallback', SensorPacket, queue_size=10)
         self.callback_Pressure = SensorPacket()
         self.publish_enabled = True
-        self.Psensor_Num = 4
         self.BufferLen   = 7
-        self.PressureBuffer       = [[0.0]*self.Psensor_Num for _ in range(self.BufferLen)]
-        self.PressurePWMBuffer    = np.zeros((int(166/2), self.Psensor_Num))
-        self.PressureOffsetBuffer = np.zeros((51, self.Psensor_Num))
         self.P_idx      = 0
         self.PWM_idx    = 0
         self.offset_idx = 0
         self.startPresAvg    = False
         self.startPresPWMAvg = False
         self.offsetMissing   = True
-        self.thisPres        = np.zeros(self.Psensor_Num)
-        self.four_pressure   = [0.0]*self.Psensor_Num
-        self.four_pressurePWM= [0.0]*self.Psensor_Num
-        self.PressureOffset  = np.zeros(self.Psensor_Num)
         self.power           = 0.0
         self.samplingF      = 166
         self.FFTbuffer_size = int(self.samplingF / 2)
         self.lock = threading.Lock()
+        self.Psensor_Num = psensor_num if psensor_num is not None else 4
+        self._init_sensor_buffers(self.Psensor_Num)
+
+    def _init_sensor_buffers(self, n):
+        self.Psensor_Num = n
+        self.PressureBuffer       = [[0.0]*n for _ in range(self.BufferLen)]
+        self.PressurePWMBuffer    = np.zeros((int(166/2), n))
+        self.PressureOffsetBuffer = np.zeros((51, n))
+        self.thisPres        = np.zeros(n)
+        self.four_pressure   = [0.0]*n
+        self.four_pressurePWM= [0.0]*n
+        self.PressureOffset  = np.zeros(n)
+        self.P_idx = 0
+        self.PWM_idx = 0
+        self.startPresAvg = False
+        self.startPresPWMAvg = False
 
     def startSampling(self):
         self.msg2Sensor.cmdInput = self.START_CMD
@@ -70,7 +78,10 @@ class P_CallbackHelp(object):
     def callback_P(self, data):
         if not self.publish_enabled or rospy.is_shutdown():
             return
-        self.thisPres = np.array(data.data, dtype=float)
+        n = data.ch if data.ch > 0 else len(data.data)
+        if n != self.Psensor_Num:
+            self._init_sensor_buffers(n)
+        self.thisPres = np.array(data.data[:n], dtype=float)
         with self.lock:
             self.PressureBuffer[self.P_idx] = self.thisPres - self.PressureOffset
             self.P_idx += 1
