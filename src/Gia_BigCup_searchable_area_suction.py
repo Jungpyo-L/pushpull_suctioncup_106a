@@ -110,90 +110,69 @@ def main(args):
 
         input("Press <Enter> to start to data collection")
         
-        # 원의 중심 위치 (disengage position)
         center_position = copy.deepcopy(disengagePosition_init)
         
-        # 반지름 범위: 38mm부터 0.5mm씩 증가하여 42mm까지
-        radii = np.arange(-5.0,30.0, 5.0)  # [-5.0, 0.0, 5.0, ..., 25.0]
+        # 반지름: 0mm부터 1mm씩 증가 (중심에서 x 방향 평행이동)
+        radii = np.arange(-5, 11, 1)  # [-5, 0, 5, 10]
         
-        # 각도 범위: 0도부터 5도씩 증가하여 360도까지 (반시계 방향)
-        angles_deg = np.arange(0, 360, 15)  # [0, 15, 30, ..., 345]
-        angles_rad = angles_deg * pi / 180.0
+        # yaw: 0도부터 30도씩, 330도까지
+        yaw_deg_list = np.arange(0, 360, 30)  # [0, 30, 60, ..., 330]
         
-        # 고정 orientation (로봇 팔 자체는 회전하지 않음)
-        fixed_orientation = tf.transformations.quaternion_from_euler(pi/2, pi, 0, 'szxy')
-        
-        # 각 반지름에 대해 반복
         for radius_mm in radii:
-            radius_m = radius_mm * 1e-3  # mm를 m로 변환
             args.radius = radius_mm
             
             print(f"\n=== Starting radius: {radius_mm}mm ===")
             
-            # 원의 중심으로 이동 (각 반지름 시작 전)
-            centerPose = rtde_help.getPoseObj(center_position, fixed_orientation)
-            rtde_help.goToPose(centerPose)
-            rospy.sleep(0.2)
+            # 반지름 r 위치 (xy 평행이동, z는 동일)
+            disengagePosition_r = copy.deepcopy(center_position)
+            disengagePosition_r[0] += radius_mm * 1e-3
             
-            # 각 각도에 대해 반복
-            for angle_idx, angle_rad in enumerate(angles_rad):
-                angle_deg = angles_deg[angle_idx]
-                args.theta = angle_deg
+            for yaw_deg in yaw_deg_list:
+                args.theta = yaw_deg
                 
-                print(f"  Angle: {angle_deg} degrees (radius: {radius_mm}mm)")
+                print(f"  Yaw: {yaw_deg} degrees (radius: {radius_mm}mm)")
                 
-                # 원의 둘레 위치 계산 (반시계 방향)
-                # 0도 = 오른쪽 (x+ 방향), 반시계 방향이 양수
-                circle_x = center_position[0] + radius_m * np.cos(angle_rad)
-                circle_y = center_position[1] + radius_m * np.sin(angle_rad)
-                circle_z = center_position[2]  # z는 동일
+                targetOrientation = tf.transformations.quaternion_from_euler(
+                    default_yaw - yaw_deg*pi/180, pi, 0, 'szxy')
                 
-                # Disengage 위치 (원의 둘레)
-                disengagePosition_circle = [circle_x, circle_y, circle_z]
-                disengagePose_circle = rtde_help.getPoseObj(disengagePosition_circle, fixed_orientation)
+                disengagePose_r = rtde_help.getPoseObj(disengagePosition_r, targetOrientation)
                 
-                # Engage 위치 (deformation만큼 내려간 위치)
-                engagePosition_circle = copy.deepcopy(disengagePosition_circle)
-                engagePosition_circle[2] = disengagePosition_circle[2] - args.deformation * 1e-3
-                engagePose_circle = rtde_help.getPoseObj(engagePosition_circle, fixed_orientation)
+                engagePosition_r = copy.deepcopy(disengagePosition_r)
+                engagePosition_r[2] = disengagePosition_r[2] - args.deformation * 1e-3
+                engagePose_r = rtde_help.getPoseObj(engagePosition_r, targetOrientation)
                 
-                # 1. Disengage 위치로 이동 (원의 둘레)
-                rtde_help.goToPose(disengagePose_circle)
+                # 1. Disengage 위치로 이동 (반지름 r, yaw 적용)
+                rtde_help.goToPose(disengagePose_r)
                 rospy.sleep(0.1)
                 
-                # 흡착 OFF로 pushpull 설정
                 msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_0
                 PushPull_pub.publish(msg)
                 syncPub.publish(SYNC_RESET)
                 rospy.sleep(0.1)
                 
-                # 센서 샘플링/오프셋
                 P_help.startSampling()
                 rospy.sleep(0.3)
                 P_help.setNowAsOffset()
                 
                 # 2. Engage 위치로 이동 (deformation만큼 내려감)
-                rtde_help.goToPose(engagePose_circle)
+                rtde_help.goToPose(engagePose_r)
                 rospy.sleep(0.1)
                 
-                # 3. Push 상태로 2초 동안 유지하며 압력 측정
+                # 3. PULL 2초 + 데이터 저장
                 msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_100
                 PushPull_pub.publish(msg)
                 
-                # 데이터 로깅 시작
                 dataLoggerEnable(True)
                 rospy.sleep(0.2)
                 syncPub.publish(SYNC_START)
                 
-                # 2초 동안 push 유지
                 rospy.sleep(2.0)
                 
-                # 데이터 취득 (압력, 힘, vacuum 값)
                 P_init = P_help.four_pressure
                 F_normal = FT_help.averageFz_noOffset
                 args.normalForceActual = F_normal
                 args.pressure_avg = P_init
-                P_vac = abs(P_help.P_vac)  # gauge pressure이므로 절대값 사용 (음수→양수)
+                P_vac = abs(P_help.P_vac)
                 
                 syncPub.publish(SYNC_STOP)
                 rospy.sleep(0.1)
@@ -201,26 +180,18 @@ def main(args):
                 # 4. 다시 Disengage 위치로 올라옴
                 msg.state, msg.pwm = PULL_STATE, DUTYCYCLE_0
                 PushPull_pub.publish(msg)
-                rtde_help.goToPose(disengagePose_circle)
+                rtde_help.goToPose(disengagePose_r)
                 rospy.sleep(0.1)
                 
-                # 데이터 로깅 정지 및 저장
-                # 저장할 데이터 정보 명시적으로 설정: radius, 각도(theta), deformation
-                args.radius = radius_mm  # 반지름 (mm)
-                args.theta = angle_deg  # 각도 (degrees, 반시계 방향)
+                args.radius = radius_mm
+                args.theta = yaw_deg
                 dataLoggerEnable(False)
                 file_help.saveDataParams(args,
-                    appendTxt=f'Gia_circular_radius_{radius_mm}mm_deformation_{args.deformation}mm_angle_{angle_deg}deg_material_{args.material}')
+                    appendTxt=f'Gia_searchable_radius_{radius_mm}mm_yaw_{yaw_deg}deg_deformation_{args.deformation}mm_material_{args.material}')
                 
                 file_help.clearTmpFolder()
                 P_help.stopSampling()
                 rospy.sleep(0.1)
-            
-            # 각 반지름 완료 후 원의 중심으로 돌아옴
-            print(f"  Completed radius {radius_mm}mm, returning to center")
-            centerPose = rtde_help.getPoseObj(center_position, fixed_orientation)
-            rtde_help.goToPose(centerPose)
-            rospy.sleep(0.2)
 
         # ===== 실험 종료 및 뒷정리 =====
         print("Go to disengage point")
