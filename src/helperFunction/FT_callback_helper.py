@@ -16,9 +16,15 @@ class FT_CallbackHelp(object):
         self.averageFx = 0.0
         self.averageFy = 0.0
         self.averageFz = 0.0
-        self.averageFx = 0.0
-        self.averageFy = 0.0
-        self.averageFz = 0.0
+        self.averageTx = 0.0
+        self.averageTy = 0.0
+        self.averageTz = 0.0
+        self.averageFx_noOffset = 0.0
+        self.averageFy_noOffset = 0.0
+        self.averageFz_noOffset = 0.0
+        self.averageTx_noOffset = 0.0
+        self.averageTy_noOffset = 0.0
+        self.averageTz_noOffset = 0.0
 
         self.offSetFx = 0.0
         self.offSetFy = 0.0
@@ -79,6 +85,10 @@ class FT_CallbackHelp(object):
             self.averageTz_noOffset = self.averageTz-self.offSetTz
     
     def setNowAsBias(self):
+        rospy.sleep(0.5)
+        timeout = rospy.Time.now() + rospy.Duration(5.0)
+        while not self.startAverage and rospy.Time.now() < timeout:
+            rospy.sleep(0.05)
         self.offSetFx = self.averageFx
         self.offSetFy = self.averageFy
         self.offSetFz = self.averageFz
