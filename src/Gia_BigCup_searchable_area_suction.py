@@ -128,10 +128,11 @@ def main(args):
        # 반지름: 0mm부터 1mm씩 증가 (중심에서 x 방향 평행이동)
        radii = np.arange(-6, 11, 4)  # [-5, 0, 5, 10]
       
-       # yaw: 0도부터 30도씩, 330도까지
-       yaw_deg_list = np.arange(0, 360, 60)  # [0, 30, 60, ..., 330]
+       # yaw: 0°→… 반시계(CCW), radius 전 복귀는 시계(CW) 방향으로 단계 이동
+       yaw_deg_list = np.arange(0, 360, 60)  # [0, 60, 120, ..., 300] CCW
+       yaw_step_deg = yaw_deg_list[1] - yaw_deg_list[0] if len(yaw_deg_list) > 1 else 60
       
-       for radius_idx, radius_mm in enumerate(radii):
+       for radius_mm in radii:
            args.radius = radius_mm
           
            print(f"\n=== Starting radius: {radius_mm}mm ===")
@@ -206,14 +207,15 @@ def main(args):
                P_help.stopSampling()
                rospy.sleep(0.1)
 
-           # 다음 radius로 넘어가기 전 yaw 0° 복귀 (한 번에 점프하면 반시계 장회전 → 단계별 역방향)
-           if radius_idx < len(radii) - 1 and len(yaw_deg_list) > 1:
-               print(f"  Resetting yaw to 0° step-by-step (reverse sweep)")
-               for reset_yaw in reversed(yaw_deg_list[:-1]):
-                   print(f"    -> yaw {reset_yaw}°")
+           # 다음 radius 전: 300°→240°→…→0° 시계(CW) 방향으로 단계 복귀
+           # (0°로 직접 goToPose하면 짧은 경로로 +60° CCW 돌아 팔이 꼬일 수 있음)
+           if yaw_deg_list[-1] != 0:
+               print(f"  Resetting yaw CW to 0° at radius {radius_mm}mm")
+               for reset_yaw_deg in range(int(yaw_deg_list[-1] - yaw_step_deg), -1, -int(yaw_step_deg)):
                    reset_orientation = tf.transformations.quaternion_from_euler(
-                       default_yaw - reset_yaw*pi/180, pi, 0, 'szxy')
+                       default_yaw - reset_yaw_deg*pi/180, pi, 0, 'szxy')
                    reset_pose = rtde_help.getPoseObj(disengagePosition_r, reset_orientation)
+                   print(f"    CW reset yaw: {reset_yaw_deg}°")
                    rtde_help.goToPose(reset_pose)
                    rospy.sleep(0.1)
 
