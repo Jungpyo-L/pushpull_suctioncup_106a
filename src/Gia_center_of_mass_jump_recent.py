@@ -383,17 +383,8 @@ def main(args):
       ts = rospy.Time.now().to_sec() - timestamp_start_time
 
       print(
-        "[COM %d] sum|grad_bal|=%.2f grad=%s grad_bal=%s w=%s dxy_mm=(%.3f,%.3f) w_ptp=%.4f"
-        % (
-          it,
-          s_bal,
-          np.round(grad, 2),
-          np.round(grad_bal, 2),
-          np.round(w, 3),
-          dx_mm,
-          dy_mm,
-          w_ptp,
-        )
+        "[COM %d] sum|grad_bal|=%.2f  max(w)-min(w)=%.4f  |dxy|=%.3f mm"
+        % (it, s_bal, w_ptp, abs_dxy_mm)
       )
 
       weak_bal = s_bal < min_bal_L1
