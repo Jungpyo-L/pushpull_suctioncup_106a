@@ -10,7 +10,9 @@ except:
 
 
 import os, sys
+from datetime import datetime
 import numpy as np
+from scipy.io import savemat
 
 
 from pushpull_suctioncup_106a.msg import PushPull
@@ -121,6 +123,7 @@ def main(args):
 
 
   # try block so that we can have a keyboard exception
+  _save_com_mat_fn = None
   try:
 
 
@@ -170,6 +173,14 @@ def main(args):
     ]
     data_step_rows = []
     timestamp_start_time = rospy.Time.now().to_sec()
+    xoff = getattr(args, "xoffset", 0)
+    run_stamp = datetime.now().strftime("%y%m%d_%H%M%S")
+    step_mat_path = os.path.join(
+      file_help.ResultSavingDirectory,
+      "COM_step_table_%s_material_%s_xoffset_%s.mat" % (run_stamp, args.material, xoff),
+    )
+    step_csv_path = step_mat_path.replace(".mat", ".csv")
+    print("COM step table will be flushed every step to:\n  %s" % step_mat_path)
 
     P_help.startSampling()
     rospy.sleep(0.5)
@@ -194,39 +205,15 @@ def main(args):
     PushPull_pub.publish(msg)
     rospy.sleep(0.2)
 
-    def _append_step_row(
-      step_i, ts, pos, p_before, p_top, grad, grad_bal, w,
-      dx_mm, dy_mm, s_bal, w_ptp, abs_dxy_mm, xy_moved,
-      stop_weak_bal, stop_flat_w, stop_tiny_dxy,
-    ):
-      data_step_rows.append([
-        float(step_i),
-        float(ts),
-        float(pos[0]), float(pos[1]), float(pos[2]),
-        float(p_before[0]), float(p_before[1]), float(p_before[2]), float(p_before[3]),
-        float(p_top[0]), float(p_top[1]), float(p_top[2]), float(p_top[3]),
-        float(grad[0]), float(grad[1]), float(grad[2]), float(grad[3]),
-        float(grad_bal[0]), float(grad_bal[1]), float(grad_bal[2]), float(grad_bal[3]),
-        float(w[0]), float(w[1]), float(w[2]), float(w[3]),
-        float(dx_mm), float(dy_mm),
-        float(s_bal),
-        float(w_ptp),
-        float(abs_dxy_mm),
-        float(xy_moved),
-        float(stop_weak_bal),
-        float(stop_flat_w),
-        float(stop_tiny_dxy),
-      ])
-
-    def _save_com_mat(append_suffix=""):
-      dataLoggerEnable(False)
-      rospy.sleep(0.1)
+    def _build_step_table():
       table = np.asarray(data_step_rows, dtype=float)
       if table.size == 0:
         table = np.zeros((0, len(STEP_COLS)), dtype=float)
+      return table
+
+    def _populate_args_from_table(table):
       args.data_com_step_table = table
       args.data_com_step_columns = np.array(STEP_COLS, dtype=object)
-      # Convenience views (same rows as table; no data loss if analysis used old keys)
       if table.shape[0] > 0:
         args.data_com_iteration = table[:, 0]
         args.data_com_timestamps = table[:, 1]
@@ -257,19 +244,90 @@ def main(args):
         args.data_com_xy_moved = np.zeros((0,), dtype=float)
       args.positionA = positionA
       args.positionA_true = positionA_true
-      cur_done = rtde_help.getCurrentPose()
-      args.com_final_pose_xyz = np.array(
-        [cur_done.pose.position.x, cur_done.pose.position.y, cur_done.pose.position.z],
-        dtype=float,
+
+    def _flush_step_table():
+      """Rewrite cumulative step table to disk after every step (survives Ctrl+C)."""
+      table = _build_step_table()
+      payload = {
+        "data_com_step_table": table,
+        "data_com_step_columns": np.array(STEP_COLS, dtype=object),
+        "data_com_pressure_before": table[:, 5:9] if table.shape[0] else np.zeros((0, 4)),
+        "data_com_pressure_top": table[:, 9:13] if table.shape[0] else np.zeros((0, 4)),
+        "data_com_gradients": table[:, 13:17] if table.shape[0] else np.zeros((0, 4)),
+        "data_com_xy_steps_mm": table[:, 25:27] if table.shape[0] else np.zeros((0, 2)),
+        "data_com_sum_abs_grad_bal": table[:, 27] if table.shape[0] else np.zeros((0,)),
+        "data_com_max_w_minus_min_w": table[:, 28] if table.shape[0] else np.zeros((0,)),
+        "data_com_abs_dxy_mm": table[:, 29] if table.shape[0] else np.zeros((0,)),
+      }
+      savemat(step_mat_path, payload)
+      np.savetxt(
+        step_csv_path,
+        table,
+        delimiter=",",
+        header=",".join(STEP_COLS),
+        comments="",
       )
-      xoff = getattr(args, "xoffset", 0)
+      print("Flushed COM steps: %d rows -> %s" % (table.shape[0], step_mat_path))
+      return table
+
+    def _append_step_row(
+      step_i, ts, pos, p_before, p_top, grad, grad_bal, w,
+      dx_mm, dy_mm, s_bal, w_ptp, abs_dxy_mm, xy_moved,
+      stop_weak_bal, stop_flat_w, stop_tiny_dxy,
+    ):
+      data_step_rows.append([
+        float(step_i),
+        float(ts),
+        float(pos[0]), float(pos[1]), float(pos[2]),
+        float(p_before[0]), float(p_before[1]), float(p_before[2]), float(p_before[3]),
+        float(p_top[0]), float(p_top[1]), float(p_top[2]), float(p_top[3]),
+        float(grad[0]), float(grad[1]), float(grad[2]), float(grad[3]),
+        float(grad_bal[0]), float(grad_bal[1]), float(grad_bal[2]), float(grad_bal[3]),
+        float(w[0]), float(w[1]), float(w[2]), float(w[3]),
+        float(dx_mm), float(dy_mm),
+        float(s_bal),
+        float(w_ptp),
+        float(abs_dxy_mm),
+        float(xy_moved),
+        float(stop_weak_bal),
+        float(stop_flat_w),
+        float(stop_tiny_dxy),
+      ])
+      _flush_step_table()
+
+    def _save_com_mat(append_suffix=""):
+      # Always persist step table first (do not depend on data_logging service).
+      table = _flush_step_table()
+      _populate_args_from_table(table)
+      try:
+        cur_done = rtde_help.getCurrentPose()
+        args.com_final_pose_xyz = np.array(
+          [cur_done.pose.position.x, cur_done.pose.position.y, cur_done.pose.position.z],
+          dtype=float,
+        )
+      except Exception as e:
+        print("Could not read final pose for mat: %s" % e)
+        args.com_final_pose_xyz = np.zeros(3, dtype=float)
+
+      try:
+        dataLoggerEnable(False)
+        rospy.sleep(0.1)
+      except Exception as e:
+        print("dataLoggerEnable(False) failed (continuing save): %s" % e)
+
       tag = "COM_haptic_material_%s_xoffset_%s%s" % (args.material, xoff, append_suffix)
-      file_help.saveDataParams(args, appendTxt=tag)
-      file_help.clearTmpFolder()
+      try:
+        file_help.saveDataParams(args, appendTxt=tag)
+        file_help.clearTmpFolder()
+      except Exception as e:
+        print("saveDataParams failed (step table already on disk): %s" % e)
+
       print(
-        "Saved COM step table: %d steps x %d cols -> data_com_step_table / data_com_step_columns"
-        % (table.shape[0], table.shape[1])
+        "Saved COM step table: %d steps x %d cols\n  step mat: %s\n  step csv: %s"
+        % (table.shape[0], table.shape[1], step_mat_path, step_csv_path)
       )
+
+    _save_com_mat_fn = _save_com_mat
 
     it = 0
     while it < max_iters and not rospy.is_shutdown():
@@ -383,20 +441,38 @@ def main(args):
       PushPull_pub.publish(msg)
       rospy.sleep(0.15)
 
-    print("Max iterations (%d); saving and stopping." % max_iters)
-    _save_com_mat("_max_iters")
+    print("Max iterations or shutdown (iters done=%d / max=%d); saving and stopping." % (it, max_iters))
+    _save_com_mat("_max_iters" if it >= max_iters else "_shutdown")
     msg.state, msg.pwm = OFF_STATE, DUTYCYCLE_0
     PushPull_pub.publish(msg)
     rospy.sleep(0.1)
     P_help.stopSampling()
-    print("============ COM haptic search stopped (max iters).")
+    print("============ COM haptic search stopped (max iters / shutdown).")
     return
 
   except rospy.ROSInterruptException:
-    dataLoggerEnable(False)
+    print("ROSInterrupt: flushing COM step table...")
+    if _save_com_mat_fn is not None:
+      try:
+        _save_com_mat_fn("_interrupted")
+      except Exception as e:
+        print("interrupt save failed: %s" % e)
+    try:
+      dataLoggerEnable(False)
+    except Exception:
+      pass
     return
   except KeyboardInterrupt:
-    dataLoggerEnable(False)
+    print("KeyboardInterrupt: flushing COM step table...")
+    if _save_com_mat_fn is not None:
+      try:
+        _save_com_mat_fn("_interrupted")
+      except Exception as e:
+        print("interrupt save failed: %s" % e)
+    try:
+      dataLoggerEnable(False)
+    except Exception:
+      pass
     return
 
 
