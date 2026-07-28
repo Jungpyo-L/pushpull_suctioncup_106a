@@ -106,7 +106,7 @@ def main(args):
   # positionA = [0.51277, 0.04676, 0.02826]  # for acrylic plate
   # positionA = [0.51572, 0.06649, 0.01193]  # for pcb
   # positionA = [0.53469, -0.02315, 0.17156]  # for round_jar
-  positionA = [0.50672, 0.01411, 0.01377]  # for baby_toy
+  positionA = [0.50520, 0.00742, 0.06855]  # for baby_toy
 
 
 
@@ -480,7 +480,7 @@ if __name__ == '__main__':
   parser.add_argument('--haptic_z_probe_acc', type=float, default=1.5, help='RTDE moveL TCP linear accel for Z probe (m/s^2)')
   parser.add_argument('--haptic_step_xy_mm', type=float, default=10.0, help='Scale s (mm) in dx=s*(w0-w2), dy=s*(w1-w3); w from |grad_bal|/sum|grad_bal|')
   parser.add_argument('--haptic_final_lift_mm', type=float, default=50.0, help='Z lift after convergence (mm)')
-  parser.add_argument('--haptic_flat_weight_ptp', type=float, default=0.11, help='Stop if max(w)-min(w) < this (w from balanced gradient)')
+  parser.add_argument('--haptic_flat_weight_ptp', type=float, default=0.25, help='Stop if max(w)-min(w) < this (w from balanced gradient)')
   parser.add_argument('--haptic_min_balanced_l1', type=float, default=25.0, help='Stop if sum|grad-mean(grad)| below this (pressure units); no asymmetry')
   parser.add_argument('--haptic_min_lateral_mm', type=float, default=0.25, help='Stop if hypot(dx,dy) below this (mm)')
   parser.add_argument('--haptic_max_iters', type=int, default=80, help='Safety cap on search iterations')
